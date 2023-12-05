@@ -1,0 +1,9 @@
+max_width=80
+wrap_comments=true
+format_strings=true
+imports_granularity="Crate"
+group_imports = "StdExternalCrate"
+use_field_init_shorthand = true
+normalize_comments = true
+empty_item_single_line = false
+short_array_element_width_threshold=80
