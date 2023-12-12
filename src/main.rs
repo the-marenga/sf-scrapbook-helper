@@ -12,9 +12,10 @@ use std::{
 
 use chrono::Local;
 use eframe::{
-    egui::{self, CentralPanel, Layout, SidePanel},
+    egui::{self, CentralPanel, Context, Layout, SidePanel},
     epaint::ahash::{HashMap, HashSet},
 };
+use once_cell::sync::OnceCell;
 use serde::{Deserialize, Serialize};
 use sf_api::{
     command::Command,
@@ -113,10 +114,14 @@ pub struct ObserverInfo {
     best_players: Vec<(usize, CharacterInfo)>,
 }
 
+static CONTEXT: OnceCell<Mutex<Context>> = OnceCell::new();
+
 impl eframe::App for MyApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        CONTEXT.get_or_init(|| Mutex::new(ctx.to_owned()));
+
         ctx.set_pixels_per_point(2.8);
-        ctx.request_repaint_after(Duration::from_millis(1000 / 10));
+        // ctx.request_repaint_after(Duration::from_millis(1000 / 10));
         let mut new_stage = None;
         egui::CentralPanel::default().show(ctx, |ui| match &mut self.stage {
             Stage::Login {
@@ -176,6 +181,8 @@ impl eframe::App for MyApp {
                             let mut session = session;
                             let res = session.login().await;
                             *arc2.lock().unwrap() = Some((res, session));
+                            let c = CONTEXT.get().unwrap().lock().unwrap();
+                            c.request_repaint();
                         });
                         new_stage = Some(Stage::LoggingIn(arc, handle, sc));
                     }
@@ -236,6 +243,8 @@ impl eframe::App for MyApp {
                                     *output.lock().unwrap() = Some(Err(err));
                                 }
                             };
+                            let c = CONTEXT.get().unwrap().lock().unwrap();
+                            c.request_repaint();
                         });
 
                         new_stage = Some(Stage::SSOLoggingIn(arc, handle));
@@ -270,6 +279,8 @@ impl eframe::App for MyApp {
                             let handle = tokio::spawn(async move {
                                 let res = session.login().await;
                                 *arc2.lock().unwrap() = Some((res, session));
+                                let c = CONTEXT.get().unwrap().lock().unwrap();
+                                c.request_repaint();
                             });
 
                             new_stage =
@@ -924,6 +935,9 @@ async fn observer(
                 handle.abort();
             }
             std::process::exit(0);
+        } else {
+            let c = CONTEXT.get().unwrap().lock().unwrap();
+            c.request_repaint();
         }
         tokio::time::sleep(Duration::from_millis(500)).await;
     }
@@ -1101,6 +1115,8 @@ async fn handle_player(
                         tokio::time::sleep(Duration::from_secs(10)).await;
                         gs.lock().unwrap().update(resp1).unwrap();
                         gs.lock().unwrap().update(resp2).unwrap();
+                        let c = CONTEXT.get().unwrap().lock().unwrap();
+                        c.request_repaint();
                     }
 
                     let res = session
@@ -1130,6 +1146,8 @@ async fn handle_player(
                     } else {
                         output.send(PlayerInfo::Lost { name }).unwrap();
                     }
+                    let c = CONTEXT.get().unwrap().lock().unwrap();
+                    c.request_repaint();
                     break;
                 }
 
