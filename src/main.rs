@@ -717,7 +717,7 @@ async fn observer(
     }
 
     let mut last_pc = 0;
-    let mut last_ec = 0;
+    let mut last_tl = 0;
 
     loop {
         match receiver.try_recv() {
@@ -833,12 +833,12 @@ async fn observer(
             handle_new_char_info(char, &mut equipment, &mut player_info);
         }
 
-        if last_pc != player_info.len() || equipment.len() != last_ec {
+        if last_pc != player_info.len() || target.items.len() != last_tl {
             update_best_players(
                 &equipment, &target, &player_info, max_level, &output,
                 &acccounts,
             );
-            last_ec = equipment.len();
+            last_tl = target.items.len();
             last_pc = player_info.len();
         } else {
             let c = CONTEXT.get().unwrap();
