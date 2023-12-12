@@ -41,7 +41,10 @@ fn main() -> Result<(), eframe::Error> {
     eframe::run_native(
         "Scrapbook Helper v0.1",
         options,
-        Box::new(|_| Box::new(Stage::start_page(None))),
+        Box::new(|cc| {
+            cc.egui_ctx.set_pixels_per_point(1.4);
+            Box::new(Stage::start_page(None))
+        }),
     )
 }
 
@@ -112,7 +115,6 @@ static CONTEXT: OnceCell<Context> = OnceCell::new();
 impl eframe::App for Stage {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         CONTEXT.get_or_init(|| ctx.to_owned());
-        ctx.set_pixels_per_point(2.8);
         let mut new_stage = None;
         egui::CentralPanel::default().show(ctx, |ui| match self {
             Stage::Login {
@@ -714,6 +716,9 @@ async fn observer(
         acccounts.push((handle, sender));
     }
 
+    let mut last_pc = 0;
+    let mut last_ec = 0;
+
     loop {
         match receiver.try_recv() {
             Ok(data) => match data {
@@ -828,9 +833,18 @@ async fn observer(
             handle_new_char_info(char, &mut equipment, &mut player_info);
         }
 
-        update_best_players(
-            &equipment, &target, &player_info, max_level, &output, &acccounts,
-        );
+        if last_pc != player_info.len() || equipment.len() != last_ec {
+            update_best_players(
+                &equipment, &target, &player_info, max_level, &output,
+                &acccounts,
+            );
+            last_ec = equipment.len();
+            last_pc = player_info.len();
+        } else {
+            let c = CONTEXT.get().unwrap();
+            c.request_repaint();
+        }
+
         tokio::time::sleep(Duration::from_millis(500)).await;
     }
 }
