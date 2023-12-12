@@ -107,14 +107,12 @@ pub struct ObserverInfo {
     best_players: Vec<(usize, CharacterInfo)>,
 }
 
-static CONTEXT: OnceCell<Mutex<Context>> = OnceCell::new();
+static CONTEXT: OnceCell<Context> = OnceCell::new();
 
 impl eframe::App for Stage {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        CONTEXT.get_or_init(|| Mutex::new(ctx.to_owned()));
-
+        CONTEXT.get_or_init(|| ctx.to_owned());
         ctx.set_pixels_per_point(2.8);
-        // ctx.request_repaint_after(Duration::from_millis(1000 / 10));
         let mut new_stage = None;
         egui::CentralPanel::default().show(ctx, |ui| match self {
             Stage::Login {
@@ -175,7 +173,7 @@ impl eframe::App for Stage {
                             let mut session = session;
                             let res = session.login().await;
                             *arc2.lock().unwrap() = Some((res, session));
-                            let c = CONTEXT.get().unwrap().lock().unwrap();
+                            let c = CONTEXT.get().unwrap();
                             c.request_repaint();
                         });
                         new_stage = Some(Stage::LoggingIn(arc, handle, sc));
@@ -202,11 +200,7 @@ impl eframe::App for Stage {
                     });
 
                     if ui.button("SSO Login").clicked() {
-                        let arc: Arc<
-                            Mutex<
-                                Option<Result<Vec<CharacterSession>, SFError>>,
-                            >,
-                        > = Arc::new(Mutex::new(None));
+                        let arc = Arc::new(Mutex::new(None));
                         let output = arc.clone();
 
                         let username = sso_name.clone();
@@ -237,7 +231,7 @@ impl eframe::App for Stage {
                                     *output.lock().unwrap() = Some(Err(err));
                                 }
                             };
-                            let c = CONTEXT.get().unwrap().lock().unwrap();
+                            let c = CONTEXT.get().unwrap();
                             c.request_repaint();
                         });
 
@@ -273,7 +267,7 @@ impl eframe::App for Stage {
                             let handle = tokio::spawn(async move {
                                 let res = session.login().await;
                                 *arc2.lock().unwrap() = Some((res, session));
-                                let c = CONTEXT.get().unwrap().lock().unwrap();
+                                let c = CONTEXT.get().unwrap();
                                 c.request_repaint();
                             });
 
@@ -287,7 +281,7 @@ impl eframe::App for Stage {
                 let res = match arc.try_lock() {
                     Ok(mut r) => r.take(),
                     _ => {
-                        ui.label(format!("Logging in. Please wait...",));
+                        ui.label("Logging in. Please wait...".to_string());
                         return;
                     }
                 };
@@ -295,8 +289,7 @@ impl eframe::App for Stage {
                     Some(Err(error)) => {
                         handle.abort();
                         *self = Stage::start_page(Some(format!(
-                            "Could not login: {}",
-                            error.to_string()
+                            "Could not login: {error}"
                         )));
                     }
                     Some(Ok(character)) => {
@@ -310,7 +303,7 @@ impl eframe::App for Stage {
                             ),
                             |ui| {
                                 ui.label(
-                                    format!("Logging in. Please wait...",),
+                                    "Logging in. Please wait...".to_string(),
                                 );
                             },
                         );
@@ -321,7 +314,7 @@ impl eframe::App for Stage {
                 let res = match response.try_lock() {
                     Ok(mut r) => r.take(),
                     _ => {
-                        ui.label(format!("Logging in. Please wait...",));
+                        ui.label("Logging in. Please wait...".to_string());
                         return;
                     }
                 };
@@ -329,8 +322,7 @@ impl eframe::App for Stage {
                     Some((Err(error), _)) => {
                         handle.abort();
                         *self = Stage::start_page(Some(format!(
-                            "Could not login: {}",
-                            error.to_string()
+                            "Could not login: {error}"
                         )));
                     }
                     Some((Ok(resp), session)) => {
@@ -411,7 +403,7 @@ impl eframe::App for Stage {
                             ),
                             |ui| {
                                 ui.label(
-                                    format!("Logging in. Please wait...",),
+                                    "Logging in. Please wait...".to_string(),
                                 );
                             },
                         );
@@ -596,16 +588,16 @@ impl eframe::App for Stage {
                         ui.heading("Possible Targets");
                         egui::ScrollArea::vertical().show(ui, |ui| {
                             egui::Grid::new("hof_grid").show(ui, |ui| {
-                                ui.label(format!("Missing",));
+                                ui.label("Missing");
                                 ui.label("Name");
-                                ui.label(format!("Level",));
+                                ui.label("Level");
                                 ui.label("Fight");
                                 ui.end_row();
                                 for (count, info) in &last_response.best_players
                                 {
-                                    ui.label(format!("{}", count.to_string()));
+                                    ui.label(count.to_string());
                                     ui.label(&info.name);
-                                    ui.label(format!("{}", info.level));
+                                    ui.label(info.level.to_string());
                                     if ui.button("Fight").clicked() {
                                         player_sender
                                             .send(PlayerCommand::Attack {
@@ -887,7 +879,7 @@ fn update_best_players(
         }
         std::process::exit(0);
     } else {
-        let c = CONTEXT.get().unwrap().lock().unwrap();
+        let c = CONTEXT.get().unwrap();
         c.request_repaint();
     }
 }
@@ -960,7 +952,7 @@ async fn crawl(
 
             FETCHED_PLAYERS.fetch_add(1, Ordering::SeqCst);
             if let Ok(resp) = r {
-                _ = gs.update(resp).unwrap();
+                gs.update(resp).unwrap();
                 let Some(player) = gs.other_players.lookup_name(&todo).cloned()
                 else {
                     continue;
@@ -970,8 +962,7 @@ async fn crawl(
                     .0
                     .iter()
                     .flatten()
-                    .map(|a| a.equipment_ident())
-                    .flatten()
+                    .filter_map(|a| a.equipment_ident())
                     .collect();
 
                 out.send(CharacterInfo {
@@ -1056,7 +1047,7 @@ async fn handle_player(
                         tokio::time::sleep(Duration::from_secs(10)).await;
                         gs.lock().unwrap().update(resp1).unwrap();
                         gs.lock().unwrap().update(resp2).unwrap();
-                        let c = CONTEXT.get().unwrap().lock().unwrap();
+                        let c = CONTEXT.get().unwrap();
                         c.request_repaint();
                     }
 
@@ -1087,12 +1078,12 @@ async fn handle_player(
                     } else {
                         output.send(PlayerInfo::Lost { name }).unwrap();
                     }
-                    let c = CONTEXT.get().unwrap().lock().unwrap();
+                    let c = CONTEXT.get().unwrap();
                     c.request_repaint();
                     break;
                 }
 
-                while let Ok(_) = receiver.try_recv() {}
+                while receiver.try_recv().is_ok() {}
             }
         }
         tokio::time::sleep(Duration::from_millis(100)).await;
