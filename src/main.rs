@@ -36,34 +36,13 @@ fn main() -> Result<(), eframe::Error> {
 
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default(),
-
         ..Default::default()
     };
     eframe::run_native(
         "Scrapbook Helper v0.1",
         options,
-        Box::new(|_| Box::<MyApp>::default()),
+        Box::new(|_| Box::new(Stage::start_page(None))),
     )
-}
-
-struct MyApp {
-    stage: Stage,
-    error: Option<String>,
-}
-
-impl Default for MyApp {
-    fn default() -> Self {
-        Self {
-            stage: Stage::Login {
-                name: "".to_owned(),
-                password: "".to_owned(),
-                server: "s1.sfgame.de".to_owned(),
-                sso_name: "".to_string(),
-                sso_password: "".to_string(),
-            },
-            error: None,
-        }
-    }
 }
 
 enum Stage {
@@ -73,6 +52,7 @@ enum Stage {
         server: String,
         sso_name: String,
         sso_password: String,
+        error: Option<String>,
     },
     LoggingIn(
         Arc<Mutex<Option<(Result<Response, SFError>, CharacterSession)>>>,
@@ -101,6 +81,19 @@ enum Stage {
     SSODecide(Vec<CharacterSession>),
 }
 
+impl Stage {
+    pub fn start_page(error: Option<String>) -> Stage {
+        Stage::Login {
+            name: "".to_owned(),
+            password: "".to_owned(),
+            server: "s1.sfgame.de".to_owned(),
+            sso_name: "".to_string(),
+            sso_password: "".to_string(),
+            error,
+        }
+    }
+}
+
 enum PlayerInfo {
     Victory { name: String, uid: u32 },
     Lost { name: String },
@@ -116,20 +109,21 @@ pub struct ObserverInfo {
 
 static CONTEXT: OnceCell<Mutex<Context>> = OnceCell::new();
 
-impl eframe::App for MyApp {
+impl eframe::App for Stage {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         CONTEXT.get_or_init(|| Mutex::new(ctx.to_owned()));
 
         ctx.set_pixels_per_point(2.8);
         // ctx.request_repaint_after(Duration::from_millis(1000 / 10));
         let mut new_stage = None;
-        egui::CentralPanel::default().show(ctx, |ui| match &mut self.stage {
+        egui::CentralPanel::default().show(ctx, |ui| match self {
             Stage::Login {
                 name,
                 password,
                 server,
                 sso_name,
                 sso_password,
+                error,
             } => {
                 ui.vertical_centered(|ui| {
                     ui.add_space(12.0);
@@ -164,7 +158,7 @@ impl eframe::App for MyApp {
 
                     if ui.button("Login").clicked() {
                         let Some(sc) = ServerConnection::new(server) else {
-                            self.error = Some("Invalid Server URL".to_string());
+                            *error = Some("Invalid Server URL".to_string());
                             return;
                         };
 
@@ -251,7 +245,7 @@ impl eframe::App for MyApp {
                     }
                     ui.add_space(12.0);
 
-                    if let Some(error) = &self.error {
+                    if let Some(error) = &error {
                         ui.label(error);
                     }
                 });
@@ -290,32 +284,24 @@ impl eframe::App for MyApp {
                 });
             }
             Stage::SSOLoggingIn(arc, handle) => {
-                let Ok(mut r) = arc.try_lock() else {
-                    ui.label(format!("Logging in. Please wait...",));
-                    return;
+                let res = match arc.try_lock() {
+                    Ok(mut r) => r.take(),
+                    _ => {
+                        ui.label(format!("Logging in. Please wait...",));
+                        return;
+                    }
                 };
-
-                match r.take() {
+                match res {
                     Some(Err(error)) => {
-                        drop(r);
-
-                        self.error = Some(format!(
+                        handle.abort();
+                        *self = Stage::start_page(Some(format!(
                             "Could not login: {}",
                             error.to_string()
-                        ));
-                        handle.abort();
-                        self.stage = Stage::Login {
-                            name: "".to_owned(),
-                            password: "".to_owned(),
-                            server: "s1.sfgame.de".to_owned(),
-                            sso_name: "".to_string(),
-                            sso_password: "".to_string(),
-                        };
+                        )));
                     }
                     Some(Ok(character)) => {
-                        drop(r);
                         handle.abort();
-                        self.stage = Stage::SSODecide(character);
+                        *self = Stage::SSODecide(character);
                     }
                     None => {
                         ui.with_layout(
@@ -328,34 +314,26 @@ impl eframe::App for MyApp {
                                 );
                             },
                         );
-                        drop(r);
                     }
                 }
             }
             Stage::LoggingIn(response, handle, sc) => {
-                let Ok(mut r) = response.try_lock() else {
-                    ui.label(format!("Logging in. Please wait...",));
-                    return;
+                let res = match response.try_lock() {
+                    Ok(mut r) => r.take(),
+                    _ => {
+                        ui.label(format!("Logging in. Please wait...",));
+                        return;
+                    }
                 };
-                match r.take() {
+                match res {
                     Some((Err(error), _)) => {
-                        drop(r);
-
-                        self.error = Some(format!(
+                        handle.abort();
+                        *self = Stage::start_page(Some(format!(
                             "Could not login: {}",
                             error.to_string()
-                        ));
-                        handle.abort();
-                        self.stage = Stage::Login {
-                            name: "".to_owned(),
-                            password: "".to_owned(),
-                            server: "s1.sfgame.de".to_owned(),
-                            sso_name: "".to_string(),
-                            sso_password: "".to_string(),
-                        };
+                        )));
                     }
                     Some((Ok(resp), session)) => {
-                        drop(r);
                         handle.abort();
 
                         let gs = GameState::new(resp).unwrap();
@@ -367,16 +345,9 @@ impl eframe::App for MyApp {
                         let initial_count = 1;
 
                         let Some(sb) = gs.unlocks.scrapbok.clone() else {
-                            self.stage = Stage::Login {
-                                name: "".to_owned(),
-                                password: "".to_owned(),
-                                server: "s1.sfgame.de".to_owned(),
-                                sso_name: "".to_string(),
-                                sso_password: "".to_string(),
-                            };
-                            self.error = Some(
+                            *self = Stage::start_page(Some(
                                 "Player does not have a scrapbook".to_string(),
-                            );
+                            ));
                             return;
                         };
 
@@ -417,7 +388,7 @@ impl eframe::App for MyApp {
                             gs.clone(),
                         ));
 
-                        self.stage = Stage::Overview {
+                        *self = Stage::Overview {
                             max_level,
                             gs,
                             observ_sender: cmd_sender,
@@ -444,7 +415,6 @@ impl eframe::App for MyApp {
                                 );
                             },
                         );
-                        drop(r);
                     }
                 }
             }
@@ -474,7 +444,6 @@ impl eframe::App for MyApp {
                         }
                         PlayerInfo::Lost { .. } => {}
                     }
-
                     *last_player_response = Some(resp)
                 }
 
@@ -548,26 +517,17 @@ impl eframe::App for MyApp {
 
                         ui.add_space(20.0);
 
-                        ui.label(format!(
-                            "{}",
-                            gs.arena
-                                .next_free_fight
-                                .map(|a| {
-                                    let now = Local::now();
-                                    if now > a {
-                                        "Free fight possible".to_string()
-                                    } else {
-                                        let remaining = a - now;
-                                        format!(
-                                            "Next free fight: {:?} sec",
-                                            remaining.num_seconds()
-                                        )
-                                    }
-                                })
-                                .unwrap_or_else(|| {
-                                    "Free fight possible".to_string()
-                                })
-                        ));
+                        let mut free_fight_possible = false;
+                        ui.label(match gs.arena.next_free_fight {
+                            Some(t) if t > Local::now() => format!(
+                                "Next free fight: {:?} sec",
+                                (t - Local::now()).num_seconds()
+                            ),
+                            _ => {
+                                free_fight_possible = true;
+                                "Free fight possible".to_string()
+                            }
+                        });
 
                         ui.checkbox(auto_battle, "Auto Battle");
 
@@ -583,13 +543,7 @@ impl eframe::App for MyApp {
                                 }
                             });
                         }
-                        if *auto_battle
-                            && gs
-                                .arena
-                                .next_free_fight
-                                .map(|a| Local::now() > a)
-                                .unwrap_or(true)
-                        {
+                        if *auto_battle && free_fight_possible {
                             if let Some((_, info)) =
                                 last_response.best_players.first()
                             {
@@ -671,7 +625,7 @@ impl eframe::App for MyApp {
         });
 
         if let Some(stage) = new_stage {
-            self.stage = stage;
+            *self = stage;
         }
     }
 }
@@ -757,15 +711,12 @@ async fn observer(
 
     for _ in 0..initial_count {
         let (sender, recv) = tokio::sync::mpsc::unbounded_channel();
-        let cs = character_sender.clone();
-        let pages = pages.clone();
-        let server = server.clone();
         let handle = tokio::spawn(crawl(
             recv,
-            cs,
+            character_sender.clone(),
             initial_started,
-            pages,
-            server,
+            pages.clone(),
+            server.clone(),
             format!("{base_name}{}", acccounts.len() + 7),
         ));
         acccounts.push((handle, sender));
@@ -885,76 +836,66 @@ async fn observer(
             handle_new_char_info(char, &mut equipment, &mut player_info);
         }
 
-        let mut all = HashMap::default();
-
-        for (eq, player) in &equipment {
-            if target.items.contains(eq) || eq.model_id >= 100 {
-                continue;
-            };
-
-            for p in player {
-                all.entry(*p).and_modify(|a| *a += 1).or_insert(1);
-            }
-        }
-
-        let mut counts = [
-            vec![],
-            vec![],
-            vec![],
-            vec![],
-            vec![],
-            vec![],
-            vec![],
-            vec![],
-            vec![],
-            vec![],
-        ];
-
-        for (player, count) in all {
-            counts[count - 1].push(player);
-        }
-
-        let mut res = Vec::new();
-        'a: for (count, player) in counts.into_iter().enumerate().rev() {
-            for player in player {
-                let info = player_info.get(&player).unwrap();
-                if info.level > max_level {
-                    continue;
-                }
-                res.push((count + 1, info.to_owned()));
-            }
-            if res.len() >= 100 {
-                break 'a;
-            }
-        }
-        res.sort_by(|a, b| b.cmp(a));
-        res.truncate(100);
-
-        if output.send(ObserverInfo { best_players: res }).is_err() {
-            for (handle, _) in &acccounts {
-                handle.abort();
-            }
-            std::process::exit(0);
-        } else {
-            let c = CONTEXT.get().unwrap().lock().unwrap();
-            c.request_repaint();
-        }
+        update_best_players(
+            &equipment, &target, &player_info, max_level, &output, &acccounts,
+        );
         tokio::time::sleep(Duration::from_millis(500)).await;
+    }
+}
+
+fn update_best_players(
+    equipment: &HashMap<EquipmentIdent, HashSet<u32>>,
+    target: &ScrapBook,
+    player_info: &HashMap<u32, CharacterInfo>,
+    max_level: u16,
+    output: &Sender<ObserverInfo>,
+    acccounts: &Vec<(JoinHandle<()>, UnboundedSender<CrawlerCommand>)>,
+) {
+    let per_player_counts: HashMap<_, _> = equipment
+        .iter()
+        .filter(|(eq, _)| !target.items.contains(eq) && eq.model_id < 100)
+        .flat_map(|(_, player)| player)
+        .fold(HashMap::default(), |mut acc, &p| {
+            *acc.entry(p).or_insert(0) += 1;
+            acc
+        });
+
+    let mut counts = [(); 10].map(|_| vec![]);
+    for (player, count) in per_player_counts {
+        counts[count - 1].push(player);
+    }
+
+    let mut best_players = Vec::new();
+    for (count, player) in counts.into_iter().enumerate().rev() {
+        best_players.extend(
+            player
+                .iter()
+                .flat_map(|a| player_info.get(a))
+                .filter(|a| a.level <= max_level)
+                .map(|a| (count + 1, a.to_owned())),
+        );
+        if best_players.len() >= 100 {
+            break;
+        }
+    }
+    best_players.sort_by(|a, b| b.cmp(a));
+    best_players.truncate(100);
+
+    if output.send(ObserverInfo { best_players }).is_err() {
+        for (handle, _) in acccounts {
+            handle.abort();
+        }
+        std::process::exit(0);
+    } else {
+        let c = CONTEXT.get().unwrap().lock().unwrap();
+        c.request_repaint();
     }
 }
 
 fn handle_new_char_info(
     char: CharacterInfo,
-    equipment: &mut std::collections::HashMap<
-        EquipmentIdent,
-        std::collections::HashSet<u32, egui::ahash::RandomState>,
-        egui::ahash::RandomState,
-    >,
-    player_info: &mut std::collections::HashMap<
-        u32,
-        CharacterInfo,
-        egui::ahash::RandomState,
-    >,
+    equipment: &mut HashMap<EquipmentIdent, HashSet<u32>>,
+    player_info: &mut HashMap<u32, CharacterInfo>,
 ) {
     for eq in char.equipment.clone() {
         equipment
