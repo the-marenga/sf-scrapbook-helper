@@ -19,12 +19,9 @@ If you have any issues, let me know. Currently I do not expect anyone to actuall
   ```
 
 ### Windows
-Windows does not come with the requires openssl libraries installed. There are a few ways to fix this, but the easiest way should be:
-- Install, bootstrap and integrate [vcpkg](https://vcpkg.io/en/getting-started)
-- Run `./vcpkg.exe install openssl:x64-windows-static-md` to install the required openssl version.
-- You may need to restart your IDE/Terminal, but after that builds should just work
+Should just build fine.
 
-> Alternatively, you can just head over to the [release](https://github.com/the-marenga/sf-scrapbook-helper/releases) page and download a pre-build binary.
+> If you just want to have the exe, you can download the newest pre-build version here: [release](https://github.com/the-marenga/sf-scrapbook-helper/releases).
 
 ### Linux 
 I have not tested this on linux, but you may need to run this:
