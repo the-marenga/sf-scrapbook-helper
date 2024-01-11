@@ -1,34 +1,30 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")] // hide console window on Windows in release
+pub mod crawler;
+pub mod observer;
+pub mod player;
 
 use std::{
     hash::{Hash, Hasher},
-    sync::{
-        atomic::{AtomicUsize, Ordering},
-        mpsc::{Receiver, Sender, TryRecvError},
-        Arc, Mutex,
-    },
+    sync::{atomic::*, mpsc::*, Arc, Mutex},
     time::Duration,
 };
 
 use chrono::Local;
-use eframe::{
-    egui::{self, CentralPanel, Context, Layout, SidePanel},
-    epaint::ahash::{HashMap, HashSet},
-};
+use crawler::{FETCHED_PLAYERS, PAGE_POS};
+use eframe::egui::{self, CentralPanel, Context, Layout, SidePanel};
+use observer::{observe, ObserverCommand, ObserverInfo};
 use once_cell::sync::OnceCell;
+use player::{handle_player, PlayerCommand, PlayerInfo};
 use serde::{Deserialize, Serialize};
 use sf_api::{
-    command::Command,
     error::SFError,
-    gamestate::{
-        character::{Class, Gender, Race},
-        unlockables::{EquipmentIdent, ScrapBook},
-        GameState,
-    },
-    session::{CharacterSession, Response, ServerConnection},
+    gamestate::{unlockables::EquipmentIdent, *},
+    session::*,
     sso::SFAccount,
 };
-use tokio::{runtime::Runtime, sync::mpsc::UnboundedSender, task::JoinHandle};
+use tokio::{runtime::Runtime, task::JoinHandle};
+
+static TOTAL_PLAYERS: AtomicUsize = AtomicUsize::new(0);
 
 fn main() -> Result<(), eframe::Error> {
     let rt = Runtime::new().expect("Unable to create Runtime");
@@ -48,6 +44,8 @@ fn main() -> Result<(), eframe::Error> {
     )
 }
 
+type Possible<T> = Arc<Mutex<Option<T>>>;
+
 enum Stage {
     Login {
         name: String,
@@ -58,7 +56,7 @@ enum Stage {
         error: Option<String>,
     },
     LoggingIn(
-        Arc<Mutex<Option<(Result<Response, SFError>, CharacterSession)>>>,
+        Possible<(Result<Response, SFError>, CharacterSession)>,
         JoinHandle<()>,
         ServerConnection,
     ),
@@ -78,7 +76,7 @@ enum Stage {
         server_url: String,
     },
     SSOLoggingIn(
-        Arc<Mutex<Option<Result<Vec<CharacterSession>, SFError>>>>,
+        Possible<Result<Vec<CharacterSession>, SFError>>,
         JoinHandle<()>,
     ),
     SSODecide(Vec<CharacterSession>),
@@ -95,19 +93,6 @@ impl Stage {
             error,
         }
     }
-}
-
-enum PlayerInfo {
-    Victory { name: String, uid: u32 },
-    Lost { name: String },
-}
-
-enum PlayerCommand {
-    Attack { name: String, uid: u32, mush: bool },
-}
-
-pub struct ObserverInfo {
-    best_players: Vec<(usize, CharacterInfo)>,
 }
 
 static CONTEXT: OnceCell<Context> = OnceCell::new();
@@ -357,7 +342,7 @@ impl eframe::App for Stage {
                         let server_url =
                             session.server_url().as_str().to_string();
 
-                        tokio::spawn(observer(
+                        tokio::spawn(observe(
                             info_sender,
                             cmd_recv,
                             sb,
@@ -583,6 +568,8 @@ impl eframe::App for Stage {
                                     .unwrap(),
                             );
                         }
+
+                        if ui.button("Copy best targets").clicked() {}
                     });
                 });
                 CentralPanel::default().show(ctx, |ui| {
@@ -624,482 +611,10 @@ impl eframe::App for Stage {
     }
 }
 
-enum ObserverCommand {
-    SetAccounts(usize),
-    SetMaxLevel(u16),
-    UpdateFight(u32),
-    Start,
-    Pause,
-    Export(String),
-    Restore(String),
-}
-
 #[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
-struct CharacterInfo {
+pub struct CharacterInfo {
     equipment: Vec<EquipmentIdent>,
     name: String,
     uid: u32,
     level: u16,
-}
-
-impl PartialOrd for CharacterInfo {
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-impl Ord for CharacterInfo {
-    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        match self.level.cmp(&other.level) {
-            core::cmp::Ordering::Equal => {}
-            ord => return ord.reverse(),
-        }
-        match self.name.cmp(&other.name) {
-            core::cmp::Ordering::Equal => {}
-            ord => return ord,
-        }
-        self.uid.cmp(&other.uid)
-    }
-}
-
-async fn observer(
-    output: Sender<ObserverInfo>,
-    receiver: Receiver<ObserverCommand>,
-    mut target: ScrapBook,
-    server: ServerConnection,
-    total_players: usize,
-    initial_count: usize,
-    mut max_level: u16,
-    player_hash: u64,
-    server_hash: u64,
-) {
-    let mut player_info: HashMap<u32, CharacterInfo> = Default::default();
-    let mut equipment: HashMap<EquipmentIdent, HashSet<u32>> =
-        Default::default();
-    let mut acccounts: Vec<(JoinHandle<()>, UnboundedSender<CrawlerCommand>)> =
-        Vec::new();
-    let initial_started = false;
-
-    TOTAL_PLAYERS.fetch_add(total_players, Ordering::SeqCst);
-
-    let total_pages = total_players / 30;
-    let mut rng = fastrand::Rng::with_seed(player_hash);
-
-    let (character_sender, mut character_receiver) =
-        tokio::sync::mpsc::unbounded_channel();
-
-    // We use the same bot accounts for the same user
-    let mut base_name = rng.alphabetic().to_ascii_uppercase().to_string();
-    for _ in 0..6 {
-        let c = if rng.bool() {
-            rng.alphabetic()
-        } else {
-            rng.digit(10)
-        };
-        base_name.push(c)
-    }
-
-    let mut rng = fastrand::Rng::with_seed(server_hash);
-    let mut pages: Vec<usize> = (0..=total_pages).collect();
-    rng.shuffle(&mut pages);
-
-    for _ in 0..initial_count {
-        let (sender, recv) = tokio::sync::mpsc::unbounded_channel();
-        let handle = tokio::spawn(crawl(
-            recv,
-            character_sender.clone(),
-            initial_started,
-            pages.clone(),
-            server.clone(),
-            format!("{base_name}{}", acccounts.len() + 7),
-        ));
-        acccounts.push((handle, sender));
-    }
-
-    let mut last_pc = 0;
-    let mut last_tl = 0;
-
-    loop {
-        match receiver.try_recv() {
-            Ok(data) => match data {
-                ObserverCommand::UpdateFight(found) => {
-                    target.items.extend(
-                        player_info.get(&found).unwrap().equipment.iter(),
-                    );
-                }
-                ObserverCommand::SetMaxLevel(max) => {
-                    max_level = max;
-                }
-                ObserverCommand::SetAccounts(count) => {
-                    while count > acccounts.len() {
-                        let (sender, recv) =
-                            tokio::sync::mpsc::unbounded_channel();
-                        let cs = character_sender.clone();
-                        let pages = pages.clone();
-                        let server = server.clone();
-                        let handle = tokio::spawn(crawl(
-                            recv,
-                            cs,
-                            initial_started,
-                            pages,
-                            server,
-                            format!("{base_name}{}", acccounts.len() + 7),
-                        ));
-                        acccounts.push((handle, sender));
-                    }
-
-                    for (_, sender) in &acccounts[0..(count - 1)] {
-                        _ = sender.send(CrawlerCommand::Start);
-                    }
-                    for (_, sender) in &acccounts[count.saturating_sub(1)..] {
-                        _ = sender.send(CrawlerCommand::Pause);
-                    }
-                }
-                ObserverCommand::Start => {
-                    for (_, sender) in &acccounts {
-                        _ = sender.send(CrawlerCommand::Start);
-                    }
-                }
-                ObserverCommand::Pause => {
-                    for (_, sender) in &acccounts {
-                        _ = sender.send(CrawlerCommand::Pause);
-                    }
-                }
-                ObserverCommand::Export(name) => {
-                    let normal = name
-                        .chars()
-                        .filter(|a| a.is_ascii_alphanumeric())
-                        .collect::<String>();
-
-                    let str = (
-                        PAGE_POS.load(Ordering::SeqCst),
-                        player_info
-                            .iter()
-                            .map(|a| a.1.clone())
-                            .collect::<Vec<_>>(),
-                    );
-                    let str = serde_json::to_string_pretty(&str).unwrap();
-                    _ = std::fs::write(&format!("{normal}.hof"), &str);
-                }
-                ObserverCommand::Restore(name) => {
-                    let normal = name
-                        .chars()
-                        .filter(|a| a.is_ascii_alphanumeric())
-                        .collect::<String>();
-
-                    match std::fs::read_to_string(&format!("{normal}.hof")) {
-                        Ok(text) => {
-                            match serde_json::from_str::<(
-                                usize,
-                                Vec<CharacterInfo>,
-                            )>(&text)
-                            {
-                                Ok((pos, chars)) => {
-                                    for char in chars {
-                                        handle_new_char_info(
-                                            char, &mut equipment,
-                                            &mut player_info,
-                                        );
-                                    }
-                                    PAGE_POS.store(pos, Ordering::SeqCst);
-                                    FETCHED_PLAYERS.store(
-                                        player_info.len(),
-                                        Ordering::SeqCst,
-                                    );
-                                }
-                                Err(e) => {
-                                    println!("could not deserialize: {e:?}")
-                                }
-                            }
-                        }
-                        Err(e) => {
-                            println!("could not read: {normal}.hof - {e:?}")
-                        }
-                    }
-                }
-            },
-            Err(TryRecvError::Disconnected) => {
-                for (handle, _) in &acccounts {
-                    handle.abort();
-                }
-                std::process::exit(0);
-            }
-            Err(TryRecvError::Empty) => {
-                // We can just continue
-            }
-        }
-
-        while let Ok(char) = character_receiver.try_recv() {
-            handle_new_char_info(char, &mut equipment, &mut player_info);
-        }
-
-        if last_pc != player_info.len() || target.items.len() != last_tl {
-            update_best_players(
-                &equipment, &target, &player_info, max_level, &output,
-                &acccounts,
-            );
-            last_tl = target.items.len();
-            last_pc = player_info.len();
-        } else {
-            let c = CONTEXT.get().unwrap();
-            c.request_repaint();
-        }
-
-        tokio::time::sleep(Duration::from_millis(500)).await;
-    }
-}
-
-fn update_best_players(
-    equipment: &HashMap<EquipmentIdent, HashSet<u32>>,
-    target: &ScrapBook,
-    player_info: &HashMap<u32, CharacterInfo>,
-    max_level: u16,
-    output: &Sender<ObserverInfo>,
-    acccounts: &Vec<(JoinHandle<()>, UnboundedSender<CrawlerCommand>)>,
-) {
-    let per_player_counts: HashMap<_, _> = equipment
-        .iter()
-        .filter(|(eq, _)| !target.items.contains(eq) && eq.model_id < 100)
-        .flat_map(|(_, player)| player)
-        .fold(HashMap::default(), |mut acc, &p| {
-            *acc.entry(p).or_insert(0) += 1;
-            acc
-        });
-
-    let mut counts = [(); 10].map(|_| vec![]);
-    for (player, count) in per_player_counts {
-        counts[count - 1].push(player);
-    }
-
-    let mut best_players = Vec::new();
-    for (count, player) in counts.into_iter().enumerate().rev() {
-        best_players.extend(
-            player
-                .iter()
-                .flat_map(|a| player_info.get(a))
-                .filter(|a| a.level <= max_level)
-                .map(|a| (count + 1, a.to_owned())),
-        );
-        if best_players.len() >= 100 {
-            break;
-        }
-    }
-    best_players.sort_by(|a, b| b.cmp(a));
-    best_players.truncate(100);
-
-    if output.send(ObserverInfo { best_players }).is_err() {
-        for (handle, _) in acccounts {
-            handle.abort();
-        }
-        std::process::exit(0);
-    } else {
-        let c = CONTEXT.get().unwrap();
-        c.request_repaint();
-    }
-}
-
-fn handle_new_char_info(
-    char: CharacterInfo,
-    equipment: &mut HashMap<EquipmentIdent, HashSet<u32>>,
-    player_info: &mut HashMap<u32, CharacterInfo>,
-) {
-    for eq in char.equipment.clone() {
-        equipment
-            .entry(eq)
-            .and_modify(|a| {
-                a.insert(char.uid);
-            })
-            .or_insert_with(|| HashSet::from_iter([char.uid].into_iter()));
-    }
-    player_info.insert(char.uid, char);
-}
-
-enum CrawlerCommand {
-    Pause,
-    Start,
-}
-
-static PAGE_POS: AtomicUsize = AtomicUsize::new(0);
-static TOTAL_PLAYERS: AtomicUsize = AtomicUsize::new(0);
-static FETCHED_PLAYERS: AtomicUsize = AtomicUsize::new(0);
-
-async fn crawl(
-    mut receiver: tokio::sync::mpsc::UnboundedReceiver<CrawlerCommand>,
-    out: tokio::sync::mpsc::UnboundedSender<CharacterInfo>,
-    mut started: bool,
-    pages: Vec<usize>,
-    server: ServerConnection,
-    username: String,
-) {
-    let password = username.chars().rev().collect::<String>();
-    let (mut session, response) = match CharacterSession::register(
-        &username,
-        &password,
-        server.clone(),
-        Gender::Male,
-        Race::DarkElf,
-        Class::Mage,
-    )
-    .await
-    {
-        Ok(x) => x,
-        Err(_) => {
-            let mut session =
-                CharacterSession::new(&username, &password, server);
-            let resp = session.login().await.unwrap();
-            (session, resp)
-        }
-    };
-
-    let mut gs = GameState::new(response).unwrap();
-
-    let mut todo_accounts: Vec<String> = Vec::new();
-
-    loop {
-        while let Some(todo) = todo_accounts.pop() {
-            tokio::time::sleep(Duration::from_millis(50)).await;
-            let r = session
-                .send_command(&Command::ViewPlayer {
-                    ident: todo.clone(),
-                })
-                .await;
-
-            FETCHED_PLAYERS.fetch_add(1, Ordering::SeqCst);
-            if let Ok(resp) = r {
-                gs.update(resp).unwrap();
-                let Some(player) = gs.other_players.lookup_name(&todo).cloned()
-                else {
-                    continue;
-                };
-                let equipment = player
-                    .equipment
-                    .0
-                    .iter()
-                    .flatten()
-                    .filter_map(|a| a.equipment_ident())
-                    .collect();
-
-                out.send(CharacterInfo {
-                    equipment,
-                    name: player.name,
-                    uid: player.player_id,
-                    level: player.level,
-                })
-                .unwrap();
-            }
-        }
-
-        match receiver.try_recv() {
-            Ok(command) => match command {
-                CrawlerCommand::Pause => {
-                    started = false;
-                }
-                CrawlerCommand::Start => {
-                    started = true;
-                }
-            },
-            Err(tokio::sync::mpsc::error::TryRecvError::Empty) => {}
-            Err(tokio::sync::mpsc::error::TryRecvError::Disconnected) => {
-                return;
-            }
-        }
-        if started {
-            // gs.other_players.reset_lookups();
-            let pos =
-                PAGE_POS.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-
-            let Some(page) = pages.get(pos).copied() else {
-                // We fetched the entire HoF
-                return;
-            };
-
-            let Ok(resp) = session
-                .send_command(&Command::HallOfFamePage { page })
-                .await
-            else {
-                continue;
-            };
-
-            gs.update(resp).unwrap();
-
-            for hof in &gs.other_players.hall_of_fame {
-                todo_accounts.push(hof.name.to_string())
-            }
-        }
-
-        tokio::time::sleep(Duration::from_millis(50)).await;
-    }
-}
-
-async fn handle_player(
-    output: Sender<PlayerInfo>,
-    receiver: Receiver<PlayerCommand>,
-    mut session: CharacterSession,
-    gs: Arc<Mutex<GameState>>,
-) {
-    loop {
-        let Ok(cmd) = receiver.try_recv() else {
-            tokio::time::sleep(Duration::from_millis(100)).await;
-            continue;
-        };
-
-        match cmd {
-            PlayerCommand::Attack { name, uid, mush } => {
-                if !mush {
-                    tokio::time::sleep(Duration::from_millis(1000)).await;
-                }
-
-                for i in 0..2 {
-                    if i > 0 {
-                        tokio::time::sleep(Duration::from_secs(1)).await;
-                        println!("Logging in again");
-                        let resp1 = session.login().await.unwrap();
-                        let resp2 = session
-                            .send_command(&Command::UpdatePlayer)
-                            .await
-                            .unwrap();
-                        tokio::time::sleep(Duration::from_secs(10)).await;
-                        gs.lock().unwrap().update(resp1).unwrap();
-                        gs.lock().unwrap().update(resp2).unwrap();
-                        let c = CONTEXT.get().unwrap();
-                        c.request_repaint();
-                    }
-
-                    let res = session
-                        .send_command(&Command::Fight {
-                            name: name.clone(),
-                            use_mushroom: mush,
-                        })
-                        .await;
-
-                    let resp = match res {
-                        Ok(x) => x,
-                        Err(err) => {
-                            println!("Error: {err}");
-                            continue;
-                        }
-                    };
-
-                    let mut gs = gs.lock().unwrap();
-                    gs.update(resp).unwrap();
-
-                    let Some(fight) = &gs.last_fight else {
-                        println!("No fight");
-                        continue;
-                    };
-                    if fight.has_player_won {
-                        output.send(PlayerInfo::Victory { name, uid }).unwrap();
-                    } else {
-                        output.send(PlayerInfo::Lost { name }).unwrap();
-                    }
-                    let c = CONTEXT.get().unwrap();
-                    c.request_repaint();
-                    break;
-                }
-
-                while receiver.try_recv().is_ok() {}
-            }
-        }
-        tokio::time::sleep(Duration::from_millis(100)).await;
-    }
 }
