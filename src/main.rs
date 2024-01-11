@@ -458,7 +458,10 @@ impl eframe::App for Stage {
                         ui.add_space(20.0);
 
                         egui::Grid::new("hof_grid").show(ui, |ui| {
-                            ui.label("Crawl threads");
+                            ui.label("Crawl threads/accounts").on_hover_text(
+                                "The amount of background accounts created to \
+                                 fetch the HoF with",
+                            );
                             ui.add(
                                 egui::DragValue::new(active)
                                     .clamp_range(1..=10),
@@ -469,7 +472,11 @@ impl eframe::App for Stage {
                                     .unwrap();
                             }
                             ui.end_row();
-                            ui.label("Max target level");
+                            ui.label("Max target level").on_hover_text(
+                                "The highest level of players, that will be \
+                                 displayed. Also effects the auto-battle \
+                                 targets",
+                            );
                             ui.add(
                                 egui::DragValue::new(max_level)
                                     .clamp_range(1..=800),
@@ -487,10 +494,26 @@ impl eframe::App for Stage {
                         ui.add_space(10.0);
 
                         ui.horizontal(|ui| {
-                            if ui.button("Pause Crawling").clicked() {
+                            if ui
+                                .button("Pause Crawling")
+                                .on_hover_text(
+                                    "Stops all background characters from \
+                                     crawling new HoF pages. Note that they \
+                                     will finish their current page, so there \
+                                     might be a short delay",
+                                )
+                                .clicked()
+                            {
                                 sender.send(ObserverCommand::Pause).unwrap()
                             }
-                            if ui.button("Start Crawling").clicked() {
+                            if ui
+                                .button("Start Crawling")
+                                .on_hover_text(
+                                    "Starts crawling the HoF with the amount \
+                                     of background characters (threads) set",
+                                )
+                                .clicked()
+                            {
                                 sender.send(ObserverCommand::Start).unwrap()
                             }
                         });
@@ -509,7 +532,11 @@ impl eframe::App for Stage {
                             }
                         });
 
-                        ui.checkbox(auto_battle, "Auto Battle");
+                        ui.checkbox(auto_battle, "Auto Battle").on_hover_text(
+                            "Automatically battles the best target as soon, \
+                             as the 10 minute timer for free arena battles \
+                             elapses.",
+                        );
 
                         if let Some(last) = last_player_response {
                             ui.label(match last {
@@ -534,15 +561,24 @@ impl eframe::App for Stage {
                                         mush: false,
                                     })
                                     .unwrap();
+                                gs.arena.next_free_fight = Some(
+                                    Local::now() + Duration::from_secs(60 * 10),
+                                );
                             }
-                            gs.arena.next_free_fight = Some(
-                                Local::now() + Duration::from_secs(60 * 10),
-                            );
                         }
 
                         ui.add_space(20.0);
 
-                        if ui.button("Backup HoF").clicked() {
+                        if ui
+                            .button("Backup HoF")
+                            .on_hover_text(
+                                "Exports the current crawling progress to a \
+                                 file in the current directory. This should \
+                                 be used instead of refetching the HoF \
+                                 multiple times for the same server",
+                            )
+                            .clicked()
+                        {
                             sender
                                 .send(ObserverCommand::Export(
                                     server_url
@@ -552,7 +588,14 @@ impl eframe::App for Stage {
                                 .unwrap();
                         }
 
-                        if ui.button("Restore HoF").clicked() {
+                        if ui
+                            .button("Restore HoF")
+                            .on_hover_text(
+                                "Loads the previously saved crawling data to \
+                                 a file in the current directory",
+                            )
+                            .clicked()
+                        {
                             sender
                                 .send(ObserverCommand::Restore(
                                     server_url
@@ -562,14 +605,29 @@ impl eframe::App for Stage {
                                 .unwrap();
                         }
 
-                        if ui.button("Export Player").clicked() {
+                        if ui
+                            .button("Export Player")
+                            .on_hover_text(
+                                "Exports information about the current player \
+                                 into a json file in the current directory",
+                            )
+                            .clicked()
+                        {
                             _ = std::fs::write(
                                 format!("{}.player", &gs.character.name),
                                 serde_json::to_string_pretty(&gs.clone())
                                     .unwrap(),
                             );
                         }
-                        if ui.button("Copy best targets").clicked() {
+                        if ui
+                            .button("Copy best targets")
+                            .on_hover_text(
+                                "Copy the optimal order to battle players \
+                                 into the clipboard. This can then be used in \
+                                 the mfbot",
+                            )
+                            .clicked()
+                        {
                             ui.output_mut(|a| {
                                 a.copied_text =
                                     last_response.target_list.clone()
