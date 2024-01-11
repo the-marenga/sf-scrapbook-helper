@@ -3,7 +3,7 @@ use std::{
         atomic::Ordering,
         mpsc::{Receiver, Sender, TryRecvError},
     },
-    time::{Duration, Instant},
+    time::Duration,
 };
 
 use eframe::epaint::ahash::{HashMap, HashSet};
