@@ -31,3 +31,6 @@ sudo apt-get install libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev lib
 
 ### Mac
 Should just build fine. You may just need the xcode cli tools
+
+## Troubleshooting
+If you are using the tool on windows 11 and it hangs at startup, you can try to launch it from the desktop. For unknown reasons, that fixes the issue. [Details](https://github.com/the-marenga/sf-scrapbook-helper/issues/3)
