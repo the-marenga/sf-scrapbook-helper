@@ -375,6 +375,7 @@ impl eframe::App for Stage {
                             active: initial_count,
                             last_response: ObserverInfo {
                                 best_players: Vec::new(),
+                                target_list: "".to_string(),
                             },
                             player_sender,
                             player_receiver: pi_recv,
@@ -568,8 +569,12 @@ impl eframe::App for Stage {
                                     .unwrap(),
                             );
                         }
-
-                        if ui.button("Copy best targets").clicked() {}
+                        if ui.button("Copy best targets").clicked() {
+                            ui.output_mut(|a| {
+                                a.copied_text =
+                                    last_response.target_list.clone()
+                            });
+                        }
                     });
                 });
                 CentralPanel::default().show(ctx, |ui| {

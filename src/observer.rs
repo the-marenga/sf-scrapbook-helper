@@ -3,10 +3,11 @@ use std::{
         atomic::Ordering,
         mpsc::{Receiver, Sender, TryRecvError},
     },
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 use eframe::epaint::ahash::{HashMap, HashSet};
+use nohash_hasher::IntMap;
 use sf_api::{
     gamestate::unlockables::{EquipmentIdent, ScrapBook},
     session::ServerConnection,
@@ -40,6 +41,7 @@ impl Ord for CharacterInfo {
 
 pub struct ObserverInfo {
     pub best_players: Vec<(usize, CharacterInfo)>,
+    pub target_list: String,
 }
 
 pub enum ObserverCommand {
@@ -236,7 +238,7 @@ pub async fn observe(
             c.request_repaint();
         }
 
-        tokio::time::sleep(Duration::from_millis(500)).await;
+        tokio::time::sleep(Duration::from_millis(200)).await;
     }
 }
 
@@ -248,37 +250,34 @@ fn update_best_players(
     output: &Sender<ObserverInfo>,
     acccounts: &Vec<(JoinHandle<()>, UnboundedSender<CrawlerCommand>)>,
 ) {
-    let per_player_counts: HashMap<_, _> = equipment
-        .iter()
-        .filter(|(eq, _)| !target.items.contains(eq) && eq.model_id < 100)
-        .flat_map(|(_, player)| player)
-        .fold(HashMap::default(), |mut acc, &p| {
-            *acc.entry(p).or_insert(0) += 1;
-            acc
-        });
+    let mut scrapbook = target.items.clone();
 
-    let mut counts = [(); 10].map(|_| vec![]);
-    for (player, count) in per_player_counts {
-        counts[count - 1].push(player);
-    }
+    let best_players =
+        find_best(equipment, &scrapbook, player_info, max_level, 100);
 
-    let mut best_players = Vec::new();
-    for (count, player) in counts.into_iter().enumerate().rev() {
-        best_players.extend(
-            player
-                .iter()
-                .flat_map(|a| player_info.get(a))
-                .filter(|a| a.level <= max_level)
-                .map(|a| (count + 1, a.to_owned())),
-        );
-        if best_players.len() >= 100 {
+    let mut best = best_players.first().cloned();
+
+    let mut target_list = Vec::new();
+    let mut loop_count = 0;
+    while let Some((count, info)) = best {
+        if count == 0 || loop_count > 300 {
             break;
         }
+        loop_count += 1;
+        scrapbook.extend(info.equipment);
+        target_list.push(info.name);
+        let best_players =
+            find_best(equipment, &scrapbook, player_info, max_level, 1);
+        best = best_players.into_iter().next();
     }
-    best_players.sort_by(|a, b| b.cmp(a));
-    best_players.truncate(100);
-
-    if output.send(ObserverInfo { best_players }).is_err() {
+    let target_list = target_list.join("/");
+    if output
+        .send(ObserverInfo {
+            best_players,
+            target_list,
+        })
+        .is_err()
+    {
         for (handle, _) in acccounts {
             handle.abort();
         }
@@ -287,6 +286,48 @@ fn update_best_players(
         let c = CONTEXT.get().unwrap();
         c.request_repaint();
     }
+}
+
+fn find_best(
+    equipment: &HashMap<EquipmentIdent, HashSet<u32>>,
+    scrapbook: &std::collections::HashSet<EquipmentIdent>,
+    player_info: &std::collections::HashMap<
+        u32,
+        CharacterInfo,
+        eframe::epaint::ahash::RandomState,
+    >,
+    max_level: u16,
+    max_out: usize,
+) -> Vec<(usize, CharacterInfo)> {
+    let per_player_counts = equipment
+        .iter()
+        .filter(|(eq, _)| !scrapbook.contains(eq) && eq.model_id < 100)
+        .flat_map(|(_, player)| player)
+        .fold(IntMap::default(), |mut acc, &p| {
+            *acc.entry(p).or_insert(0) += 1;
+            acc
+        });
+
+    let mut counts = [(); 10].map(|_| vec![]);
+    for (player, count) in per_player_counts {
+        counts[count - 1].push(player);
+    }
+    let mut best_players = Vec::new();
+    for (count, player) in counts.iter().enumerate().rev() {
+        best_players.extend(
+            player
+                .iter()
+                .flat_map(|a| player_info.get(a))
+                .filter(|a| a.level <= max_level)
+                .map(|a| (count + 1, a.to_owned())),
+        );
+        if best_players.len() >= max_out {
+            break;
+        }
+    }
+    best_players.sort_by(|a, b| b.cmp(a));
+    best_players.truncate(max_out);
+    best_players
 }
 
 fn handle_new_char_info(
