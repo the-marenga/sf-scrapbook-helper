@@ -308,9 +308,9 @@ fn find_best(
             acc
         });
 
-    let mut counts = [(); 10].map(|_| vec![]);
+    let mut counts = [(); 11].map(|_| vec![]);
     for (player, count) in per_player_counts {
-        counts[count - 1].push(player);
+        counts[(count - 1).clamp(0, 10)].push(player);
     }
     let mut best_players = Vec::new();
     for (count, player) in counts.iter().enumerate().rev() {
