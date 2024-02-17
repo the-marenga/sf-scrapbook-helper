@@ -12,7 +12,7 @@ use std::{
 use chrono::Local;
 use crawler::{FETCHED_PLAYERS, PAGE_POS};
 use eframe::egui::{self, CentralPanel, Context, Layout, SidePanel};
-use observer::{observe, ObserverCommand, ObserverInfo};
+use observer::{observe, ObserverCommand, ObserverInfo, INITIAL_LOAD_FINISHED};
 use once_cell::sync::OnceCell;
 use player::{handle_player, PlayerCommand, PlayerInfo};
 use serde::{Deserialize, Serialize};
@@ -73,7 +73,6 @@ enum Stage {
 
         last_player_response: Option<PlayerInfo>,
         auto_battle: bool,
-        server_url: String,
     },
     SSOLoggingIn(
         Possible<Result<Vec<CharacterSession>, SFError>>,
@@ -352,6 +351,7 @@ impl eframe::App for Stage {
                             gs.character.level,
                             player_hash,
                             server_hash,
+                            server_url,
                         ));
 
                         let max_level = gs.character.level;
@@ -381,7 +381,6 @@ impl eframe::App for Stage {
                             player_receiver: pi_recv,
                             last_player_response: None,
                             auto_battle: false,
-                            server_url,
                         };
                     }
                     None => {
@@ -409,8 +408,23 @@ impl eframe::App for Stage {
                 player_receiver,
                 last_player_response,
                 auto_battle,
-                server_url,
             } => {
+                if !INITIAL_LOAD_FINISHED.load(Ordering::SeqCst) {
+                    ui.with_layout(
+                        Layout::centered_and_justified(
+                            egui::Direction::TopDown,
+                        ),
+                        |ui| {
+                            ui.label(
+                                "Checking backups. This might take a second \
+                                 or two"
+                                    .to_string(),
+                            );
+                        },
+                    );
+                    return;
+                }
+
                 if let Ok(resp) = receiver.try_recv() {
                     *last_response = resp
                 }
@@ -579,13 +593,7 @@ impl eframe::App for Stage {
                             )
                             .clicked()
                         {
-                            sender
-                                .send(ObserverCommand::Export(
-                                    server_url
-                                        .trim_start_matches("https")
-                                        .to_string(),
-                                ))
-                                .unwrap();
+                            sender.send(ObserverCommand::Export).unwrap();
                         }
 
                         if ui
@@ -596,13 +604,18 @@ impl eframe::App for Stage {
                             )
                             .clicked()
                         {
-                            sender
-                                .send(ObserverCommand::Restore(
-                                    server_url
-                                        .trim_start_matches("https")
-                                        .to_string(),
-                                ))
-                                .unwrap();
+                            sender.send(ObserverCommand::Restore).unwrap();
+                        }
+
+                        if ui
+                            .button("Clear HoF")
+                            .on_hover_text(
+                                "Clears all data fetched from the HoF (in \
+                                 case you want to start from 0)",
+                            )
+                            .clicked()
+                        {
+                            sender.send(ObserverCommand::Clear).unwrap();
                         }
 
                         if ui

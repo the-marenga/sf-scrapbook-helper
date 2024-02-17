@@ -2,7 +2,7 @@ use std::{
     collections::HashSet,
     io::prelude::*,
     sync::{
-        atomic::Ordering,
+        atomic::{AtomicBool, Ordering},
         mpsc::{Receiver, Sender, TryRecvError},
     },
     time::Duration,
@@ -58,9 +58,12 @@ pub enum ObserverCommand {
     UpdateFight(u32),
     Start,
     Pause,
-    Export(String),
-    Restore(String),
+    Export,
+    Restore,
+    Clear,
 }
+
+pub static INITIAL_LOAD_FINISHED: AtomicBool = AtomicBool::new(false);
 
 #[allow(clippy::too_many_arguments)]
 pub async fn observe(
@@ -73,7 +76,14 @@ pub async fn observe(
     mut max_level: u16,
     player_hash: u64,
     server_hash: u64,
+    server_url: String,
 ) -> ! {
+    let server_ident = &server_url
+        .trim_start_matches("https")
+        .chars()
+        .filter(|a| a.is_ascii_alphanumeric())
+        .collect::<String>();
+
     let mut player_info: IntMap<u32, CharacterInfo> = Default::default();
     let mut equipment: HashMap<EquipmentIdent, HashSet<u32>> =
         Default::default();
@@ -119,6 +129,21 @@ pub async fn observe(
 
     let mut last_pc = 0;
     let mut last_tl = 0;
+
+    if !restore_backup(server_ident, &mut equipment, &mut player_info) {
+        // We could not restore an existing backup, so we fetch one online
+        match fetch_online_hof(server_ident).await {
+            Ok(_) => {
+                // If we managed to fetch one, we should load it
+                restore_backup(server_ident, &mut equipment, &mut player_info);
+            }
+            Err(e) => {
+                eprintln!("Could not fetch HoF: {e}")
+            }
+        }
+    }
+
+    INITIAL_LOAD_FINISHED.store(true, Ordering::SeqCst);
 
     loop {
         match receiver.try_recv() {
@@ -166,12 +191,20 @@ pub async fn observe(
                         _ = sender.send(CrawlerCommand::Pause);
                     }
                 }
-                ObserverCommand::Export(server_name) => {
-                    export_backup(server_name, &player_info);
+                ObserverCommand::Export => {
+                    export_backup(server_ident, &player_info);
                 }
-                ObserverCommand::Restore(server_url) => restore_backup(
-                    &server_url, &mut equipment, &mut player_info,
-                ),
+                ObserverCommand::Restore => {
+                    restore_backup(
+                        server_ident, &mut equipment, &mut player_info,
+                    );
+                }
+                ObserverCommand::Clear => {
+                    PAGE_POS.store(0, Ordering::SeqCst);
+                    FETCHED_PLAYERS.store(0, Ordering::SeqCst);
+                    equipment.clear();
+                    player_info.clear();
+                }
             },
             Err(TryRecvError::Disconnected) => {
                 for (handle, _) in &acccounts {
@@ -204,15 +237,19 @@ pub async fn observe(
     }
 }
 
-fn export_backup(
-    server_name: String,
-    player_info: &IntMap<u32, CharacterInfo>,
-) {
-    let server_ident = server_name
-        .chars()
-        .filter(|a| a.is_ascii_alphanumeric())
-        .collect::<String>();
+async fn fetch_online_hof(
+    server_ident: &str,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let resp = reqwest::get(format!(
+        "https://hof-cache.marenga.dev/{server_ident}.zhof"
+    ))
+    .await?;
+    let bytes = resp.bytes().await?;
+    tokio::fs::write(format!("{server_ident}.zhof"), bytes).await?;
+    Ok(())
+}
 
+fn export_backup(server_ident: &str, player_info: &IntMap<u32, CharacterInfo>) {
     let str = HofBackup {
         current_page: PAGE_POS.load(Ordering::SeqCst),
         characters: player_info.iter().map(|a| a.1.clone()).collect::<Vec<_>>(),
@@ -235,15 +272,10 @@ struct HofBackup {
 }
 
 fn restore_backup(
-    server_url: &str,
+    server_ident: &str,
     equipment: &mut HashMap<EquipmentIdent, HashSet<u32>>,
     player_info: &mut IntMap<u32, CharacterInfo>,
-) {
-    let server_ident = server_url
-        .chars()
-        .filter(|a| a.is_ascii_alphanumeric())
-        .collect::<String>();
-
+) -> bool {
     let options = [true, false];
 
     for is_compressed in options {
@@ -254,8 +286,7 @@ fn restore_backup(
 
         let mut file = match std::fs::read(&file_name) {
             Ok(t) => t,
-            Err(e) => {
-                println!("{file_name} could not be read: {e}");
+            Err(_) => {
                 continue;
             }
         };
@@ -294,7 +325,9 @@ fn restore_backup(
         }
         PAGE_POS.store(backup.current_page, Ordering::SeqCst);
         FETCHED_PLAYERS.store(player_info.len(), Ordering::SeqCst);
+        return true;
     }
+    false
 }
 
 fn update_best_players(
