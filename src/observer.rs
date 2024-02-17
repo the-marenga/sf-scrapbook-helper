@@ -9,7 +9,7 @@ use std::{
 };
 
 use chrono::{DateTime, Utc};
-use eframe::epaint::ahash::HashMap;
+use eframe::epaint::ahash::{HashMap, HashMapExt};
 use flate2::{
     write::{ZlibDecoder, ZlibEncoder},
     Compression,
@@ -24,7 +24,7 @@ use tokio::{sync::mpsc::UnboundedSender, task::JoinHandle};
 
 use crate::{
     crawler::{crawl, CrawlerCommand, FETCHED_PLAYERS, PAGE_POS},
-    CharacterInfo, CONTEXT, TOTAL_PLAYERS,
+    player, CharacterInfo, CONTEXT, TOTAL_PLAYERS,
 };
 
 impl PartialOrd for CharacterInfo {
@@ -127,9 +127,6 @@ pub async fn observe(
         acccounts.push((handle, sender));
     }
 
-    let mut last_pc = 0;
-    let mut last_tl = 0;
-
     if !restore_backup(server_ident, &mut equipment, &mut player_info) {
         // We could not restore an existing backup, so we fetch one online
         match fetch_online_hof(server_ident).await {
@@ -142,6 +139,13 @@ pub async fn observe(
             }
         }
     }
+    let start = std::time::Instant::now();
+    update_best_players(
+        &equipment, &target, &player_info, max_level, &output, &acccounts,
+    );
+    println!("Initial load took: {:?}", start.elapsed());
+    let mut last_tl = target.items.len();
+    let mut last_pc = player_info.len();
 
     INITIAL_LOAD_FINISHED.store(true, Ordering::SeqCst);
 
@@ -363,7 +367,7 @@ fn update_best_players(
     let mut target_list = Vec::new();
     let mut loop_count = 0;
     while let Some((count, info)) = best {
-        if count == 0 || loop_count > 300 {
+        if count == 0 || loop_count > 300 || count == 1 {
             break;
         }
         loop_count += 1;
@@ -373,6 +377,7 @@ fn update_best_players(
             find_best(equipment, &scrapbook, player_info, max_level, 1);
         best = best_players.into_iter().next();
     }
+
     let target_list = target_list.join("/");
     if output
         .send(ObserverInfo {
@@ -398,26 +403,39 @@ fn find_best(
     max_level: u16,
     max_out: usize,
 ) -> Vec<(usize, CharacterInfo)> {
-    let per_player_counts = equipment
-        .iter()
-        .filter(|(eq, _)| !scrapbook.contains(eq) && eq.model_id < 100)
-        .flat_map(|(_, player)| player)
-        .fold(IntMap::default(), |mut acc, &p| {
-            *acc.entry(p).or_insert(0) += 1;
-            acc
-        });
+    let mut per_player_counts = IntMap::with_capacity(player_info.len());
+    for (eq, players) in equipment {
+        if scrapbook.contains(eq) || eq.model_id >= 100 {
+            continue;
+        }
+        for player in players {
+            *per_player_counts.entry(*player).or_insert(0) += 1;
+        }
+    }
 
+    // Prune the counts to make computation faster
+    let mut max = 1;
     let mut counts = [(); 11].map(|_| vec![]);
     for (player, count) in per_player_counts {
+        if count < max {
+            continue;
+        }
+        let Some(info) = player_info.get(&player) else {
+            continue;
+        };
+        if info.level > max_level {
+            continue;
+        }
+        max = max.max(count);
         counts[(count - 1).clamp(0, 10)].push(player);
     }
+
     let mut best_players = Vec::new();
-    for (count, player) in counts.iter().enumerate().rev() {
+    for (count, players) in counts.iter().enumerate().rev() {
         best_players.extend(
-            player
+            players
                 .iter()
                 .flat_map(|a| player_info.get(a))
-                .filter(|a| a.level <= max_level)
                 .map(|a| (count + 1, a.to_owned())),
         );
         if best_players.len() >= max_out {
