@@ -400,13 +400,6 @@ impl eframe::App for Stage {
                                 );
 
                                 ui.spinner();
-
-                                ui.add_space(ui.available_height());
-
-                                if ui.button("Skip").clicked() {
-                                    INITIAL_LOAD_FINISHED
-                                        .store(true, Ordering::SeqCst)
-                                }
                             })
                         },
                     );
