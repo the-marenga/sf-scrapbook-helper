@@ -244,9 +244,15 @@ async fn fetch_online_hof(
         "https://hof-cache.marenga.dev/{server_ident}.zhof"
     ))
     .await?;
-    let bytes = resp.bytes().await?;
-    tokio::fs::write(format!("{server_ident}.zhof"), bytes).await?;
-    Ok(())
+
+    match resp.error_for_status() {
+        Ok(r) => {
+            let bytes = r.bytes().await?;
+            tokio::fs::write(format!("{server_ident}.zhof"), bytes).await?;
+            Ok(())
+        }
+        Err(e) => return Err(e.into()),
+    }
 }
 
 fn export_backup(server_ident: &str, player_info: &IntMap<u32, CharacterInfo>) {
@@ -294,14 +300,23 @@ fn restore_backup(
         let uncompressed = match is_compressed {
             true => {
                 let mut decoder = ZlibDecoder::new(Vec::new());
-                decoder.write_all(&mut file).unwrap();
-                let decoded = decoder.finish().unwrap();
+                if decoder.write_all(&mut file).is_err() {
+                    eprintln!("Could not decode archive");
+                    continue;
+                }
+                let Ok(decoded) = decoder.finish() else {
+                    eprintln!("Could not finish decoding archive");
+                    continue;
+                };
                 decoded
             }
             false => file,
         };
 
-        let str = String::from_utf8(uncompressed).unwrap();
+        let Ok(str) = String::from_utf8(uncompressed) else {
+            eprintln!("data is not utf8");
+            continue;
+        };
 
         let backup = match serde_json::from_str::<HofBackup>(&str) {
             Ok(x) => x,

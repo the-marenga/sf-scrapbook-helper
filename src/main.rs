@@ -128,45 +128,44 @@ impl eframe::App for Stage {
                     });
                     ui.horizontal(|ui| {
                         let password_label = ui.label("Password: ");
-                        ui.add_sized(
-                            ui.available_size(),
-                            egui::TextEdit::singleline(password).password(true),
-                        )
-                        .labelled_by(password_label.id);
+                        let pw = ui
+                            .add_sized(
+                                ui.available_size(),
+                                egui::TextEdit::singleline(password)
+                                    .password(true),
+                            )
+                            .labelled_by(password_label.id);
+
+                        if pw.lost_focus()
+                            && pw.ctx.input(|a| a.key_down(egui::Key::Enter))
+                        {
+                            login_normal(
+                                server, name, password, &mut new_stage, error,
+                            );
+                        }
                     });
                     ui.horizontal(|ui| {
                         let server_label = ui.label("Server: ");
-                        ui.add_sized(
-                            ui.available_size(),
-                            egui::TextEdit::singleline(server),
-                        )
-                        .labelled_by(server_label.id);
+                        let pw = ui
+                            .add_sized(
+                                ui.available_size(),
+                                egui::TextEdit::singleline(server),
+                            )
+                            .labelled_by(server_label.id);
+                        if pw.lost_focus()
+                            && pw.ctx.input(|a| a.key_down(egui::Key::Enter))
+                        {
+                            login_normal(
+                                server, name, password, &mut new_stage, error,
+                            );
+                        }
                     });
                     ui.add_space(12.0);
 
                     if ui.button("Login").clicked() {
-                        let Some(sc) = ServerConnection::new(server) else {
-                            *error = Some("Invalid Server URL".to_string());
-                            return;
-                        };
-
-                        let session = sf_api::session::CharacterSession::new(
-                            name,
-                            password,
-                            sc.clone(),
+                        login_normal(
+                            server, name, password, &mut new_stage, error,
                         );
-
-                        let arc = Arc::new(Mutex::new(None));
-                        let arc2 = arc.clone();
-
-                        let handle = tokio::spawn(async move {
-                            let mut session = session;
-                            let res = session.login().await;
-                            *arc2.lock().unwrap() = Some((res, session));
-                            let c = CONTEXT.get().unwrap();
-                            c.request_repaint();
-                        });
-                        new_stage = Some(Stage::LoggingIn(arc, handle, sc));
                     }
                     ui.add_space(12.0);
                     ui.heading("SSO Login");
@@ -181,51 +180,23 @@ impl eframe::App for Stage {
                     });
                     ui.horizontal(|ui| {
                         let password_label = ui.label("Password: ");
-                        ui.add_sized(
-                            ui.available_size(),
-                            egui::TextEdit::singleline(sso_password)
-                                .password(true),
-                        )
-                        .labelled_by(password_label.id);
+                        let pw = ui
+                            .add_sized(
+                                ui.available_size(),
+                                egui::TextEdit::singleline(sso_password)
+                                    .password(true),
+                            )
+                            .labelled_by(password_label.id);
+
+                        if pw.lost_focus()
+                            && pw.ctx.input(|a| a.key_down(egui::Key::Enter))
+                        {
+                            login_sso(sso_name, sso_password, &mut new_stage);
+                        }
                     });
 
                     if ui.button("SSO Login").clicked() {
-                        let arc = Arc::new(Mutex::new(None));
-                        let output = arc.clone();
-
-                        let username = sso_name.clone();
-                        let password = sso_password.clone();
-
-                        let handle = tokio::spawn(async move {
-                            let account = match SFAccount::login(
-                                username, password,
-                            )
-                            .await
-                            {
-                                Ok(account) => account,
-                                Err(err) => {
-                                    *output.lock().unwrap() = Some(Err(err));
-                                    return;
-                                }
-                            };
-
-                            match account.characters().await {
-                                Ok(character) => {
-                                    let vec = character
-                                        .into_iter()
-                                        .flatten()
-                                        .collect::<Vec<_>>();
-                                    *output.lock().unwrap() = Some(Ok(vec));
-                                }
-                                Err(err) => {
-                                    *output.lock().unwrap() = Some(Err(err));
-                                }
-                            };
-                            let c = CONTEXT.get().unwrap();
-                            c.request_repaint();
-                        });
-
-                        new_stage = Some(Stage::SSOLoggingIn(arc, handle));
+                        login_sso(sso_name, sso_password, &mut new_stage);
                     }
                     ui.add_space(12.0);
 
@@ -689,6 +660,70 @@ impl eframe::App for Stage {
             *self = stage;
         }
     }
+}
+
+fn login_sso(
+    sso_name: &mut String,
+    sso_password: &mut String,
+    new_stage: &mut Option<Stage>,
+) {
+    let arc = Arc::new(Mutex::new(None));
+    let output = arc.clone();
+
+    let username = sso_name.clone();
+    let password = sso_password.clone();
+
+    let handle = tokio::spawn(async move {
+        let account = match SFAccount::login(username, password).await {
+            Ok(account) => account,
+            Err(err) => {
+                *output.lock().unwrap() = Some(Err(err));
+                return;
+            }
+        };
+
+        match account.characters().await {
+            Ok(character) => {
+                let vec = character.into_iter().flatten().collect::<Vec<_>>();
+                *output.lock().unwrap() = Some(Ok(vec));
+            }
+            Err(err) => {
+                *output.lock().unwrap() = Some(Err(err));
+            }
+        };
+        let c = CONTEXT.get().unwrap();
+        c.request_repaint();
+    });
+
+    *new_stage = Some(Stage::SSOLoggingIn(arc, handle));
+}
+
+fn login_normal(
+    server: &mut String,
+    name: &mut String,
+    password: &mut String,
+    new_stage: &mut Option<Stage>,
+    error: &mut Option<String>,
+) {
+    let Some(sc) = ServerConnection::new(server) else {
+        *error = Some("Invalid Server URL".to_string());
+        return;
+    };
+
+    let session =
+        sf_api::session::CharacterSession::new(name, password, sc.clone());
+
+    let arc = Arc::new(Mutex::new(None));
+    let arc2 = arc.clone();
+
+    let handle = tokio::spawn(async move {
+        let mut session = session;
+        let res = session.login().await;
+        *arc2.lock().unwrap() = Some((res, session));
+        let c = CONTEXT.get().unwrap();
+        c.request_repaint();
+    });
+    *new_stage = Some(Stage::LoggingIn(arc, handle, sc));
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
