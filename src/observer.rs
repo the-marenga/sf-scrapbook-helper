@@ -1,4 +1,5 @@
 use std::{
+    collections::HashSet,
     io::prelude::*,
     sync::{
         atomic::Ordering,
@@ -7,7 +8,7 @@ use std::{
     time::Duration,
 };
 
-use eframe::epaint::ahash::{HashMap, HashSet};
+use eframe::epaint::ahash::HashMap;
 use flate2::{
     write::{ZlibDecoder, ZlibEncoder},
     Compression,
@@ -71,7 +72,7 @@ pub async fn observe(
     player_hash: u64,
     server_hash: u64,
 ) -> ! {
-    let mut player_info: HashMap<u32, CharacterInfo> = Default::default();
+    let mut player_info: IntMap<u32, CharacterInfo> = Default::default();
     let mut equipment: HashMap<EquipmentIdent, HashSet<u32>> =
         Default::default();
     let mut acccounts: Vec<(JoinHandle<()>, UnboundedSender<CrawlerCommand>)> =
@@ -203,7 +204,7 @@ pub async fn observe(
 
 fn export_backup(
     server_name: String,
-    player_info: &HashMap<u32, CharacterInfo>,
+    player_info: &IntMap<u32, CharacterInfo>,
 ) {
     let server_ident = server_name
         .chars()
@@ -226,7 +227,7 @@ fn export_backup(
 fn restore_backup(
     server_url: &str,
     equipment: &mut HashMap<EquipmentIdent, HashSet<u32>>,
-    player_info: &mut HashMap<u32, CharacterInfo>,
+    player_info: &mut IntMap<u32, CharacterInfo>,
 ) {
     let server_ident = server_url
         .chars()
@@ -274,7 +275,7 @@ fn restore_backup(
 fn update_best_players(
     equipment: &HashMap<EquipmentIdent, HashSet<u32>>,
     target: &ScrapBook,
-    player_info: &HashMap<u32, CharacterInfo>,
+    player_info: &IntMap<u32, CharacterInfo>,
     max_level: u16,
     output: &Sender<ObserverInfo>,
     acccounts: &Vec<(JoinHandle<()>, UnboundedSender<CrawlerCommand>)>,
@@ -320,11 +321,7 @@ fn update_best_players(
 fn find_best(
     equipment: &HashMap<EquipmentIdent, HashSet<u32>>,
     scrapbook: &std::collections::HashSet<EquipmentIdent>,
-    player_info: &std::collections::HashMap<
-        u32,
-        CharacterInfo,
-        eframe::epaint::ahash::RandomState,
-    >,
+    player_info: &IntMap<u32, CharacterInfo>,
     max_level: u16,
     max_out: usize,
 ) -> Vec<(usize, CharacterInfo)> {
@@ -362,7 +359,7 @@ fn find_best(
 fn handle_new_char_info(
     char: CharacterInfo,
     equipment: &mut HashMap<EquipmentIdent, HashSet<u32>>,
-    player_info: &mut HashMap<u32, CharacterInfo>,
+    player_info: &mut IntMap<u32, CharacterInfo>,
 ) {
     for eq in char.equipment.clone() {
         equipment
