@@ -24,7 +24,7 @@ use tokio::{sync::mpsc::UnboundedSender, task::JoinHandle};
 
 use crate::{
     crawler::{crawl, CrawlerCommand, FETCHED_PLAYERS, PAGE_POS},
-    player, CharacterInfo, CONTEXT, TOTAL_PLAYERS,
+    CharacterInfo, CONTEXT, TOTAL_PLAYERS,
 };
 
 impl PartialOrd for CharacterInfo {
@@ -139,13 +139,13 @@ pub async fn observe(
             }
         }
     }
-    let start = std::time::Instant::now();
     update_best_players(
         &equipment, &target, &player_info, max_level, &output, &acccounts,
     );
-    println!("Initial load took: {:?}", start.elapsed());
+
     let mut last_tl = target.items.len();
     let mut last_pc = player_info.len();
+    let mut level_changed = false;
 
     INITIAL_LOAD_FINISHED.store(true, Ordering::SeqCst);
 
@@ -159,6 +159,7 @@ pub async fn observe(
                 }
                 ObserverCommand::SetMaxLevel(max) => {
                     max_level = max;
+                    level_changed = true;
                 }
                 ObserverCommand::SetAccounts(count) => {
                     while count > acccounts.len() {
@@ -225,13 +226,14 @@ pub async fn observe(
             handle_new_char_info(char, &mut equipment, &mut player_info);
         }
 
-        if last_pc != player_info.len() || target.items.len() != last_tl {
+        if level_changed || last_pc != player_info.len() || target.items.len() != last_tl {
             update_best_players(
                 &equipment, &target, &player_info, max_level, &output,
                 &acccounts,
             );
             last_tl = target.items.len();
             last_pc = player_info.len();
+            level_changed = false;
         } else {
             let c = CONTEXT.get().unwrap();
             c.request_repaint();
@@ -357,24 +359,58 @@ fn update_best_players(
     output: &Sender<ObserverInfo>,
     acccounts: &Vec<(JoinHandle<()>, UnboundedSender<CrawlerCommand>)>,
 ) {
+    let start = std::time::Instant::now();
     let mut scrapbook = target.items.clone();
+    let mut per_player_counts = IntMap::with_capacity(player_info.len());
+    for (eq, players) in equipment {
+        if scrapbook.contains(eq) || eq.model_id >= 100 {
+            continue;
+        }
+        for player in players {
+            *per_player_counts.entry(*player).or_insert(0) += 1;
+        }
+    }
 
-    let best_players =
-        find_best(equipment, &scrapbook, player_info, max_level, 100);
+    per_player_counts.retain(|a, _| {
+        let Some(info) = player_info.get(a) else {
+            return false;
+        };
+        if info.level > max_level {
+            return false;
+        }
+        true
+    });
+
+    let best_players = find_best(&per_player_counts, player_info, 100);
 
     let mut best = best_players.first().cloned();
 
     let mut target_list = Vec::new();
     let mut loop_count = 0;
-    while let Some((count, info)) = best {
-        if count == 0 || loop_count > 300 || count == 1 {
+    while let Some((new_count, info)) = best {
+        if loop_count > 300 || new_count <= 1 {
             break;
         }
         loop_count += 1;
+
+        for eq in &info.equipment {
+            if scrapbook.contains(eq) {
+                continue;
+            }
+            let Some(players) = equipment.get(eq) else {
+                continue;
+            };
+            // We decrease the new equipment count of all players, that have
+            // the same item as the one we just "found"
+            for player in players {
+                let ppc = per_player_counts.entry(*player).or_insert(1);
+                *ppc = ppc.saturating_sub(1);
+            }
+        }
+
         scrapbook.extend(info.equipment);
         target_list.push(info.name);
-        let best_players =
-            find_best(equipment, &scrapbook, player_info, max_level, 1);
+        let best_players = find_best(&per_player_counts, player_info, 1);
         best = best_players.into_iter().next();
     }
 
@@ -390,40 +426,22 @@ fn update_best_players(
             handle.abort();
         }
         std::process::exit(0);
-    } else {
-        let c = CONTEXT.get().unwrap();
-        c.request_repaint();
     }
+    let c = CONTEXT.get().unwrap();
+    c.request_repaint();
+    println!("Update took: {:?}", start.elapsed());
 }
 
 fn find_best(
-    equipment: &HashMap<EquipmentIdent, HashSet<u32>>,
-    scrapbook: &std::collections::HashSet<EquipmentIdent>,
+    per_player_counts: &IntMap<u32, usize>,
     player_info: &IntMap<u32, CharacterInfo>,
-    max_level: u16,
     max_out: usize,
 ) -> Vec<(usize, CharacterInfo)> {
-    let mut per_player_counts = IntMap::with_capacity(player_info.len());
-    for (eq, players) in equipment {
-        if scrapbook.contains(eq) || eq.model_id >= 100 {
-            continue;
-        }
-        for player in players {
-            *per_player_counts.entry(*player).or_insert(0) += 1;
-        }
-    }
-
     // Prune the counts to make computation faster
     let mut max = 1;
     let mut counts = [(); 11].map(|_| vec![]);
-    for (player, count) in per_player_counts {
+    for (player, count) in per_player_counts.iter().map(|a| (*a.0, *a.1)) {
         if count < max {
-            continue;
-        }
-        let Some(info) = player_info.get(&player) else {
-            continue;
-        };
-        if info.level > max_level {
             continue;
         }
         max = max.max(count);
@@ -444,6 +462,7 @@ fn find_best(
     }
     best_players.sort_by(|a, b| b.cmp(a));
     best_players.truncate(max_out);
+
     best_players
 }
 
