@@ -1,4 +1,5 @@
 use std::{
+    io::prelude::*,
     sync::{
         atomic::Ordering,
         mpsc::{Receiver, Sender, TryRecvError},
@@ -7,6 +8,10 @@ use std::{
 };
 
 use eframe::epaint::ahash::{HashMap, HashSet};
+use flate2::{
+    write::{ZlibDecoder, ZlibEncoder},
+    Compression,
+};
 use nohash_hasher::IntMap;
 use sf_api::{
     gamestate::unlockables::{EquipmentIdent, ScrapBook},
@@ -65,7 +70,7 @@ pub async fn observe(
     mut max_level: u16,
     player_hash: u64,
     server_hash: u64,
-) {
+) -> ! {
     let mut player_info: HashMap<u32, CharacterInfo> = Default::default();
     let mut equipment: HashMap<EquipmentIdent, HashSet<u32>> =
         Default::default();
@@ -158,58 +163,12 @@ pub async fn observe(
                         _ = sender.send(CrawlerCommand::Pause);
                     }
                 }
-                ObserverCommand::Export(name) => {
-                    let normal = name
-                        .chars()
-                        .filter(|a| a.is_ascii_alphanumeric())
-                        .collect::<String>();
-
-                    let str = (
-                        PAGE_POS.load(Ordering::SeqCst),
-                        player_info
-                            .iter()
-                            .map(|a| a.1.clone())
-                            .collect::<Vec<_>>(),
-                    );
-                    let str = serde_json::to_string_pretty(&str).unwrap();
-                    _ = std::fs::write(&format!("{normal}.hof"), &str);
+                ObserverCommand::Export(server_name) => {
+                    export_backup(server_name, &player_info);
                 }
-                ObserverCommand::Restore(name) => {
-                    let normal = name
-                        .chars()
-                        .filter(|a| a.is_ascii_alphanumeric())
-                        .collect::<String>();
-
-                    match std::fs::read_to_string(&format!("{normal}.hof")) {
-                        Ok(text) => {
-                            match serde_json::from_str::<(
-                                usize,
-                                Vec<CharacterInfo>,
-                            )>(&text)
-                            {
-                                Ok((pos, chars)) => {
-                                    for char in chars {
-                                        handle_new_char_info(
-                                            char, &mut equipment,
-                                            &mut player_info,
-                                        );
-                                    }
-                                    PAGE_POS.store(pos, Ordering::SeqCst);
-                                    FETCHED_PLAYERS.store(
-                                        player_info.len(),
-                                        Ordering::SeqCst,
-                                    );
-                                }
-                                Err(e) => {
-                                    println!("could not deserialize: {e:?}")
-                                }
-                            }
-                        }
-                        Err(e) => {
-                            println!("could not read: {normal}.hof - {e:?}")
-                        }
-                    }
-                }
+                ObserverCommand::Restore(server_url) => restore_backup(
+                    &server_url, &mut equipment, &mut player_info,
+                ),
             },
             Err(TryRecvError::Disconnected) => {
                 for (handle, _) in &acccounts {
@@ -239,6 +198,76 @@ pub async fn observe(
         }
 
         tokio::time::sleep(Duration::from_millis(200)).await;
+    }
+}
+
+fn export_backup(
+    server_name: String,
+    player_info: &HashMap<u32, CharacterInfo>,
+) {
+    let server_ident = server_name
+        .chars()
+        .filter(|a| a.is_ascii_alphanumeric())
+        .collect::<String>();
+
+    let str = (
+        PAGE_POS.load(Ordering::SeqCst),
+        player_info.iter().map(|a| a.1.clone()).collect::<Vec<_>>(),
+    );
+
+    let str = serde_json::to_string(&str).unwrap();
+
+    let mut e = ZlibEncoder::new(Vec::new(), Compression::default());
+    e.write_all(str.as_bytes()).unwrap();
+    let compressed_bytes = e.finish().unwrap();
+    _ = std::fs::write(&format!("{server_ident}.zhof"), &compressed_bytes);
+}
+
+fn restore_backup(
+    server_url: &str,
+    equipment: &mut HashMap<EquipmentIdent, HashSet<u32>>,
+    player_info: &mut HashMap<u32, CharacterInfo>,
+) {
+    let server_ident = server_url
+        .chars()
+        .filter(|a| a.is_ascii_alphanumeric())
+        .collect::<String>();
+
+    let options = [true, false];
+
+    for is_compressed in options {
+        let file_name = format!(
+            "{server_ident}.{}hof",
+            if is_compressed { "z" } else { "" }
+        );
+
+        let mut file = match std::fs::read(&file_name) {
+            Ok(t) => t,
+            Err(e) => {
+                println!("{file_name} could not be read: {e}");
+                continue;
+            }
+        };
+
+        let uncompressed = match is_compressed {
+            true => {
+                let mut decoder = ZlibDecoder::new(Vec::new());
+                decoder.write_all(&mut file).unwrap();
+                let decoded = decoder.finish().unwrap();
+                decoded
+            }
+            false => file,
+        };
+
+        let str = String::from_utf8(uncompressed).unwrap();
+        let (pos, chars) =
+            serde_json::from_str::<(usize, Vec<CharacterInfo>)>(&str).unwrap();
+
+        for char in chars {
+            handle_new_char_info(char, equipment, player_info);
+        }
+        PAGE_POS.store(pos, Ordering::SeqCst);
+        FETCHED_PLAYERS.store(player_info.len(), Ordering::SeqCst);
     }
 }
 
