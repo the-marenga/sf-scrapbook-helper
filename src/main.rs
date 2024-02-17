@@ -670,15 +670,15 @@ impl eframe::App for Stage {
 }
 
 fn login_sso(
-    sso_name: &mut String,
-    sso_password: &mut String,
+    sso_name: &str,
+    sso_password: &str,
     new_stage: &mut Option<Stage>,
 ) {
     let arc = Arc::new(Mutex::new(None));
     let output = arc.clone();
 
-    let username = sso_name.clone();
-    let password = sso_password.clone();
+    let username = sso_name.to_string();
+    let password = sso_password.to_string();
 
     let handle = tokio::spawn(async move {
         let account = match SFAccount::login(username, password).await {
@@ -706,9 +706,9 @@ fn login_sso(
 }
 
 fn login_normal(
-    server: &mut String,
-    name: &mut String,
-    password: &mut String,
+    server: &str,
+    name: &str,
+    password: &str,
     new_stage: &mut Option<Stage>,
     error: &mut Option<String>,
 ) {

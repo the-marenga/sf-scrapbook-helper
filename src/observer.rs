@@ -266,7 +266,7 @@ async fn fetch_online_hof(
             tokio::fs::write(format!("{server_ident}.zhof"), bytes).await?;
             Ok(())
         }
-        Err(e) => return Err(e.into()),
+        Err(e) => Err(e.into()),
     }
 }
 
@@ -282,7 +282,7 @@ fn export_backup(server_ident: &str, player_info: &IntMap<u32, CharacterInfo>) {
     let mut e = ZlibEncoder::new(Vec::new(), Compression::default());
     e.write_all(str.as_bytes()).unwrap();
     let compressed_bytes = e.finish().unwrap();
-    _ = std::fs::write(&format!("{server_ident}.zhof"), &compressed_bytes);
+    _ = std::fs::write(format!("{server_ident}.zhof"), compressed_bytes);
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -305,7 +305,7 @@ fn restore_backup(
             if is_compressed { "z" } else { "" }
         );
 
-        let mut file = match std::fs::read(&file_name) {
+        let file = match std::fs::read(&file_name) {
             Ok(t) => t,
             Err(_) => {
                 continue;
@@ -315,7 +315,7 @@ fn restore_backup(
         let uncompressed = match is_compressed {
             true => {
                 let mut decoder = ZlibDecoder::new(Vec::new());
-                if decoder.write_all(&mut file).is_err() {
+                if decoder.write_all(&file).is_err() {
                     eprintln!("Could not decode archive");
                     continue;
                 }
