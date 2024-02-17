@@ -149,6 +149,8 @@ pub async fn observe(
 
     INITIAL_LOAD_FINISHED.store(true, Ordering::SeqCst);
 
+    let mut caa = 1;
+
     loop {
         match receiver.try_recv() {
             Ok(data) => match data {
@@ -162,6 +164,7 @@ pub async fn observe(
                     level_changed = true;
                 }
                 ObserverCommand::SetAccounts(count) => {
+                    caa = count;
                     while count > acccounts.len() {
                         let (sender, recv) =
                             tokio::sync::mpsc::unbounded_channel();
@@ -179,15 +182,15 @@ pub async fn observe(
                         acccounts.push((handle, sender));
                     }
 
-                    for (_, sender) in &acccounts[0..(count - 1)] {
+                    for (_, sender) in &acccounts[0..count] {
                         _ = sender.send(CrawlerCommand::Start);
                     }
-                    for (_, sender) in &acccounts[count.saturating_sub(1)..] {
+                    for (_, sender) in &acccounts[count..] {
                         _ = sender.send(CrawlerCommand::Pause);
                     }
                 }
                 ObserverCommand::Start => {
-                    for (_, sender) in &acccounts {
+                    for (_, sender) in &acccounts[..caa] {
                         _ = sender.send(CrawlerCommand::Start);
                     }
                 }
