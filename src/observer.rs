@@ -153,67 +153,70 @@ pub async fn observe(
 
     loop {
         match receiver.try_recv() {
-            Ok(data) => match data {
-                ObserverCommand::UpdateFight(found) => {
-                    target.items.extend(
-                        player_info.get(&found).unwrap().equipment.iter(),
-                    );
-                }
-                ObserverCommand::SetMaxLevel(max) => {
-                    max_level = max;
-                    level_changed = true;
-                }
-                ObserverCommand::SetAccounts(count) => {
-                    caa = count;
-                    while count > acccounts.len() {
-                        let (sender, recv) =
-                            tokio::sync::mpsc::unbounded_channel();
-                        let cs = character_sender.clone();
-                        let pages = pages.clone();
-                        let server = server.clone();
-                        let handle = tokio::spawn(crawl(
-                            recv,
-                            cs,
-                            initial_started,
-                            pages,
-                            server,
-                            format!("{base_name}{}", acccounts.len() + 7),
-                        ));
-                        acccounts.push((handle, sender));
+            Ok(data) => {
+                match data {
+                    ObserverCommand::UpdateFight(found) => {
+                        target.items.extend(
+                            player_info.get(&found).unwrap().equipment.iter(),
+                        );
                     }
+                    ObserverCommand::SetMaxLevel(max) => {
+                        max_level = max;
+                        level_changed = true;
+                    }
+                    ObserverCommand::SetAccounts(count) => {
+                        caa = count;
+                        while count > acccounts.len() {
+                            let (sender, recv) =
+                                tokio::sync::mpsc::unbounded_channel();
+                            let cs = character_sender.clone();
+                            let pages = pages.clone();
+                            let server = server.clone();
+                            let handle = tokio::spawn(crawl(
+                                recv,
+                                cs,
+                                initial_started,
+                                pages,
+                                server,
+                                format!("{base_name}{}", acccounts.len() + 7),
+                            ));
+                            acccounts.push((handle, sender));
+                        }
 
-                    for (_, sender) in &acccounts[0..count] {
-                        _ = sender.send(CrawlerCommand::Start);
+                        for (_, sender) in &acccounts[0..count] {
+                            _ = sender.send(CrawlerCommand::Start);
+                        }
+                        for (_, sender) in &acccounts[count..] {
+                            _ = sender.send(CrawlerCommand::Pause);
+                        }
                     }
-                    for (_, sender) in &acccounts[count..] {
-                        _ = sender.send(CrawlerCommand::Pause);
+                    ObserverCommand::Start => {
+                        for (_, sender) in &acccounts[..caa] {
+                            _ = sender.send(CrawlerCommand::Start);
+                        }
+                    }
+                    ObserverCommand::Pause => {
+                        for (_, sender) in &acccounts {
+                            _ = sender.send(CrawlerCommand::Pause);
+                        }
+                    }
+                    ObserverCommand::Export => {
+                        export_backup(server_ident, &player_info);
+                    }
+                    ObserverCommand::Restore => {
+                        restore_backup(
+                            server_ident, &mut equipment, &mut player_info,
+                        );
+                    }
+                    ObserverCommand::Clear => {
+                        PAGE_POS.store(0, Ordering::SeqCst);
+                        FETCHED_PLAYERS.store(0, Ordering::SeqCst);
+                        equipment.clear();
+                        player_info.clear();
                     }
                 }
-                ObserverCommand::Start => {
-                    for (_, sender) in &acccounts[..caa] {
-                        _ = sender.send(CrawlerCommand::Start);
-                    }
-                }
-                ObserverCommand::Pause => {
-                    for (_, sender) in &acccounts {
-                        _ = sender.send(CrawlerCommand::Pause);
-                    }
-                }
-                ObserverCommand::Export => {
-                    export_backup(server_ident, &player_info);
-                }
-                ObserverCommand::Restore => {
-                    restore_backup(
-                        server_ident, &mut equipment, &mut player_info,
-                    );
-                }
-                ObserverCommand::Clear => {
-                    PAGE_POS.store(0, Ordering::SeqCst);
-                    FETCHED_PLAYERS.store(0, Ordering::SeqCst);
-                    equipment.clear();
-                    player_info.clear();
-                }
-            },
+                continue;
+            }
             Err(TryRecvError::Disconnected) => {
                 for (handle, _) in &acccounts {
                     handle.abort();
@@ -229,7 +232,10 @@ pub async fn observe(
             handle_new_char_info(char, &mut equipment, &mut player_info);
         }
 
-        if level_changed || last_pc != player_info.len() || target.items.len() != last_tl {
+        if level_changed
+            || last_pc != player_info.len()
+            || target.items.len() != last_tl
+        {
             update_best_players(
                 &equipment, &target, &player_info, max_level, &output,
                 &acccounts,

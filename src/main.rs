@@ -450,7 +450,7 @@ impl eframe::App for Stage {
                             TOTAL_PLAYERS.fetch_add(0, Ordering::SeqCst)
                         ));
 
-                        ui.add_space(20.0);
+                        ui.add_space(10.0);
 
                         ui.group(|ui| {
                             egui::Grid::new("hof_grid").show(ui, |ui| {
@@ -459,34 +459,39 @@ impl eframe::App for Stage {
                                         "The amount of background accounts \
                                          created to fetch the HoF with",
                                     );
-                                ui.add(
-                                    egui::DragValue::new(active)
-                                        .clamp_range(1..=10),
-                                );
-                                if ui.button("Set").clicked() {
+                                if ui
+                                    .add(
+                                        egui::DragValue::new(active)
+                                            .clamp_range(1..=10),
+                                    )
+                                    .changed()
+                                {
                                     sender
                                         .send(ObserverCommand::SetAccounts(
                                             *active,
                                         ))
                                         .unwrap();
-                                }
+                                };
                                 ui.end_row();
                                 ui.label("Max target level").on_hover_text(
                                     "The highest level of players, that will \
                                      be displayed. Also effects the \
                                      auto-battle targets",
                                 );
-                                ui.add(
-                                    egui::DragValue::new(max_level)
-                                        .clamp_range(1..=800),
-                                );
-                                if ui.button("Set").clicked() {
+                                if ui
+                                    .add(
+                                        egui::DragValue::new(max_level)
+                                            .clamp_range(1..=800),
+                                    )
+                                    .changed()
+                                {
                                     sender
                                         .send(ObserverCommand::SetMaxLevel(
                                             *max_level,
                                         ))
                                         .unwrap();
                                 }
+
                                 ui.end_row();
                             })
                         });
