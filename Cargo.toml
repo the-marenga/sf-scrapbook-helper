@@ -1,6 +1,6 @@
 [package]
 name = "sf-scrapbook-helper"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
@@ -8,8 +8,10 @@ edition = "2021"
 [dependencies]
 chrono = "0.4.31"
 eframe = "0.25"
+env_logger = "0.11.2"
 fastrand = "2.0.1"
 flate2 = "1.0.28"
+log = "0.4.20"
 nohash-hasher = "0.2.0"
 once_cell = "1.19.0"
 reqwest = { version = "0.11.24", features = ["gzip", "deflate", "brotli"] }

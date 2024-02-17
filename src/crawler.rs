@@ -58,27 +58,32 @@ pub async fn crawl(
                 .await;
 
             FETCHED_PLAYERS.fetch_add(1, Ordering::SeqCst);
-            if let Ok(resp) = r {
-                gs.update(resp).unwrap();
-                let Some(player) = gs.other_players.lookup_name(&todo).cloned()
-                else {
-                    continue;
-                };
-                let equipment = player
-                    .equipment
-                    .0
-                    .iter()
-                    .flatten()
-                    .filter_map(|a| a.equipment_ident())
-                    .collect();
+            match r {
+                Ok(resp) => {
+                    gs.update(resp).unwrap();
+                    let Some(player) = gs.other_players.lookup_name(&todo).cloned()
+                    else {
+                        continue;
+                    };
+                    let equipment = player
+                        .equipment
+                        .0
+                        .iter()
+                        .flatten()
+                        .filter_map(|a| a.equipment_ident())
+                        .collect();
 
-                out.send(CharacterInfo {
-                    equipment,
-                    name: player.name,
-                    uid: player.player_id,
-                    level: player.level,
-                })
-                .unwrap();
+                    out.send(CharacterInfo {
+                        equipment,
+                        name: player.name,
+                        uid: player.player_id,
+                        level: player.level,
+                    })
+                    .unwrap();
+                }
+                Err(e) => {
+                    eprintln!("Error fetching {todo}: {e}")
+                },
             }
         }
 
@@ -97,7 +102,7 @@ pub async fn crawl(
             }
         }
         if started {
-            // gs.other_players.reset_lookups();
+            gs.other_players.reset_lookups();
             let pos =
                 PAGE_POS.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
 

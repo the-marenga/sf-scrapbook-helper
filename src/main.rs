@@ -27,6 +27,10 @@ use tokio::{runtime::Runtime, task::JoinHandle};
 static TOTAL_PLAYERS: AtomicUsize = AtomicUsize::new(0);
 
 fn main() -> Result<(), eframe::Error> {
+    env_logger::builder()
+        .filter_level(log::LevelFilter::Warn)
+        .init();
+
     let rt = Runtime::new().expect("Unable to create Runtime");
     let _enter = rt.enter();
 
@@ -35,7 +39,7 @@ fn main() -> Result<(), eframe::Error> {
         ..Default::default()
     };
     eframe::run_native(
-        "Scrapbook Helper v0.1",
+        "Scrapbook Helper v0.1.1",
         options,
         Box::new(|cc| {
             cc.egui_ctx.set_pixels_per_point(1.4);
@@ -86,7 +90,7 @@ impl Stage {
         Stage::Login {
             name: "".to_owned(),
             password: "".to_owned(),
-            server: "s1.sfgame.de".to_owned(),
+            server: "f1.sfgame.net".to_owned(),
             sso_name: "".to_string(),
             sso_password: "".to_string(),
             error,
