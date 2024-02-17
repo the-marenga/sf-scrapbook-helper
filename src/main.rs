@@ -390,11 +390,24 @@ impl eframe::App for Stage {
                             egui::Direction::TopDown,
                         ),
                         |ui| {
-                            ui.label(
-                                "Checking backups. This might take a second \
-                                 or two"
-                                    .to_string(),
-                            );
+                            ui.group(|ui| {
+                                ui.set_height(ui.available_height() / 8.0);
+                                ui.set_width(ui.available_width() / 1.5);
+
+                                ui.label(
+                                    "Checking backups. This might take a few \
+                                     seconds. Please wait",
+                                );
+
+                                ui.spinner();
+
+                                ui.add_space(ui.available_height());
+
+                                if ui.button("Skip").clicked() {
+                                    INITIAL_LOAD_FINISHED
+                                        .store(true, Ordering::SeqCst)
+                                }
+                            })
                         },
                     );
                     return;
@@ -446,38 +459,43 @@ impl eframe::App for Stage {
 
                         ui.add_space(20.0);
 
-                        egui::Grid::new("hof_grid").show(ui, |ui| {
-                            ui.label("Crawl threads/accounts").on_hover_text(
-                                "The amount of background accounts created to \
-                                 fetch the HoF with",
-                            );
-                            ui.add(
-                                egui::DragValue::new(active)
-                                    .clamp_range(1..=10),
-                            );
-                            if ui.button("Set").clicked() {
-                                sender
-                                    .send(ObserverCommand::SetAccounts(*active))
-                                    .unwrap();
-                            }
-                            ui.end_row();
-                            ui.label("Max target level").on_hover_text(
-                                "The highest level of players, that will be \
-                                 displayed. Also effects the auto-battle \
-                                 targets",
-                            );
-                            ui.add(
-                                egui::DragValue::new(max_level)
-                                    .clamp_range(1..=800),
-                            );
-                            if ui.button("Set").clicked() {
-                                sender
-                                    .send(ObserverCommand::SetMaxLevel(
-                                        *max_level,
-                                    ))
-                                    .unwrap();
-                            }
-                            ui.end_row();
+                        ui.group(|ui| {
+                            egui::Grid::new("hof_grid").show(ui, |ui| {
+                                ui.label("Crawl threads/accounts")
+                                    .on_hover_text(
+                                        "The amount of background accounts \
+                                         created to fetch the HoF with",
+                                    );
+                                ui.add(
+                                    egui::DragValue::new(active)
+                                        .clamp_range(1..=10),
+                                );
+                                if ui.button("Set").clicked() {
+                                    sender
+                                        .send(ObserverCommand::SetAccounts(
+                                            *active,
+                                        ))
+                                        .unwrap();
+                                }
+                                ui.end_row();
+                                ui.label("Max target level").on_hover_text(
+                                    "The highest level of players, that will \
+                                     be displayed. Also effects the \
+                                     auto-battle targets",
+                                );
+                                ui.add(
+                                    egui::DragValue::new(max_level)
+                                        .clamp_range(1..=800),
+                                );
+                                if ui.button("Set").clicked() {
+                                    sender
+                                        .send(ObserverCommand::SetMaxLevel(
+                                            *max_level,
+                                        ))
+                                        .unwrap();
+                                }
+                                ui.end_row();
+                            })
                         });
 
                         ui.add_space(10.0);
@@ -624,32 +642,49 @@ impl eframe::App for Stage {
                     });
                 });
                 CentralPanel::default().show(ctx, |ui| {
+                    ui.set_width(ui.available_width());
                     ui.vertical_centered(|ui| {
+                        ui.set_width(ui.available_width());
                         ui.heading("Possible Targets");
                         egui::ScrollArea::vertical().show(ui, |ui| {
-                            egui::Grid::new("hof_grid").show(ui, |ui| {
-                                ui.label("Missing");
-                                ui.label("Name");
-                                ui.label("Level");
-                                ui.label("Fight");
-                                ui.end_row();
-                                for (count, info) in &last_response.best_players
-                                {
-                                    ui.label(count.to_string());
-                                    ui.label(&info.name);
-                                    ui.label(info.level.to_string());
-                                    if ui.button("Fight").clicked() {
-                                        player_sender
-                                            .send(PlayerCommand::Attack {
-                                                name: info.name.clone(),
-                                                uid: info.uid,
-                                                mush: true,
-                                            })
-                                            .unwrap();
-                                    }
+                            ui.set_width(ui.available_width());
+
+                            egui::Grid::new("hof_grid")
+                                .num_columns(4)
+                                .striped(true)
+                                .spacing((20.0, 10.0))
+                                .min_col_width(20.0)
+                                .show(ui, |ui| {
+                                    ui.label("Fight");
+                                    ui.label("Missing");
+                                    ui.label("Level");
+                                    // No chance in hell, this is how you are
+                                    // supposed to do this
+                                    ui.label(format!(
+                                        "Name{}",
+                                        vec![' '; 10_000]
+                                            .into_iter()
+                                            .collect::<String>()
+                                    ));
                                     ui.end_row();
-                                }
-                            });
+                                    for (count, info) in
+                                        &last_response.best_players
+                                    {
+                                        if ui.button("Fight").clicked() {
+                                            player_sender
+                                                .send(PlayerCommand::Attack {
+                                                    name: info.name.clone(),
+                                                    uid: info.uid,
+                                                    mush: true,
+                                                })
+                                                .unwrap();
+                                        }
+                                        ui.label(count.to_string());
+                                        ui.label(info.level.to_string());
+                                        ui.label(&info.name);
+                                        ui.end_row();
+                                    }
+                                });
                         });
                     });
                 });
