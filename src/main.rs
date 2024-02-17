@@ -395,7 +395,7 @@ impl eframe::App for Stage {
                                 ui.set_width(ui.available_width() / 1.5);
 
                                 ui.label(
-                                    "Loading backups. This might take a few \
+                                    "Loading data. This might take a few \
                                      seconds. Please wait",
                                 );
 
