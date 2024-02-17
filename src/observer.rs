@@ -149,7 +149,7 @@ pub async fn observe(
 
     INITIAL_LOAD_FINISHED.store(true, Ordering::SeqCst);
 
-    let mut caa = 1;
+    let mut caa = initial_count;
 
     loop {
         match receiver.try_recv() {
@@ -368,7 +368,6 @@ fn update_best_players(
     output: &Sender<ObserverInfo>,
     acccounts: &Vec<(JoinHandle<()>, UnboundedSender<CrawlerCommand>)>,
 ) {
-    let start = std::time::Instant::now();
     let mut scrapbook = target.items.clone();
     let mut per_player_counts = IntMap::with_capacity(player_info.len());
     for (eq, players) in equipment {
@@ -438,7 +437,6 @@ fn update_best_players(
     }
     let c = CONTEXT.get().unwrap();
     c.request_repaint();
-    println!("Update took: {:?}", start.elapsed());
 }
 
 fn find_best(

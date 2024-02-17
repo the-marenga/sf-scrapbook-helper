@@ -295,7 +295,7 @@ impl eframe::App for Stage {
                         let (info_sender, info_recv) =
                             std::sync::mpsc::channel();
 
-                        let initial_count = 1;
+                        let initial_count = 0;
 
                         let Some(sb) = gs.unlocks.scrapbok.clone() else {
                             *self = Stage::start_page(Some(
@@ -454,15 +454,16 @@ impl eframe::App for Stage {
 
                         ui.group(|ui| {
                             egui::Grid::new("hof_grid").show(ui, |ui| {
-                                ui.label("Crawl threads/accounts")
+                                ui.label("Active crawling threads")
                                     .on_hover_text(
                                         "The amount of background accounts \
-                                         created to fetch the HoF with",
+                                         currently working on downloading the \
+                                         HoF",
                                     );
                                 if ui
                                     .add(
                                         egui::DragValue::new(active)
-                                            .clamp_range(1..=10),
+                                            .clamp_range(0..=10),
                                     )
                                     .changed()
                                 {
@@ -497,33 +498,6 @@ impl eframe::App for Stage {
                         });
 
                         ui.add_space(10.0);
-
-                        ui.horizontal(|ui| {
-                            if ui
-                                .button("Pause Crawling")
-                                .on_hover_text(
-                                    "Stops all background characters from \
-                                     crawling new HoF pages. Note that they \
-                                     will finish their current page, so there \
-                                     might be a short delay",
-                                )
-                                .clicked()
-                            {
-                                sender.send(ObserverCommand::Pause).unwrap()
-                            }
-                            if ui
-                                .button("Start Crawling")
-                                .on_hover_text(
-                                    "Starts crawling the HoF with the amount \
-                                     of background characters (threads) set",
-                                )
-                                .clicked()
-                            {
-                                sender.send(ObserverCommand::Start).unwrap()
-                            }
-                        });
-
-                        ui.add_space(20.0);
 
                         let mut free_fight_possible = false;
                         ui.label(match gs.arena.next_free_fight {

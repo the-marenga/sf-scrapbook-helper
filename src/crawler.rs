@@ -61,7 +61,8 @@ pub async fn crawl(
             match r {
                 Ok(resp) => {
                     gs.update(resp).unwrap();
-                    let Some(player) = gs.other_players.lookup_name(&todo).cloned()
+                    let Some(player) =
+                        gs.other_players.lookup_name(&todo).cloned()
                     else {
                         continue;
                     };
@@ -83,7 +84,7 @@ pub async fn crawl(
                 }
                 Err(e) => {
                     eprintln!("Error fetching {todo}: {e}")
-                },
+                }
             }
         }
 
