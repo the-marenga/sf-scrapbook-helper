@@ -39,7 +39,7 @@ fn main() -> Result<(), eframe::Error> {
         ..Default::default()
     };
     eframe::run_native(
-        "Scrapbook Helper v0.1.1",
+        format!("Scrapbook Helper v{}", env!("CARGO_PKG_VERSION")).as_str(),
         options,
         Box::new(|cc| {
             cc.egui_ctx.set_pixels_per_point(1.4);
