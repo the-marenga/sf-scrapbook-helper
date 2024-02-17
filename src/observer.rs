@@ -8,12 +8,14 @@ use std::{
     time::Duration,
 };
 
+use chrono::{DateTime, Utc};
 use eframe::epaint::ahash::HashMap;
 use flate2::{
     write::{ZlibDecoder, ZlibEncoder},
     Compression,
 };
 use nohash_hasher::IntMap;
+use serde::{Deserialize, Serialize};
 use sf_api::{
     gamestate::unlockables::{EquipmentIdent, ScrapBook},
     session::ServerConnection,
@@ -211,10 +213,11 @@ fn export_backup(
         .filter(|a| a.is_ascii_alphanumeric())
         .collect::<String>();
 
-    let str = (
-        PAGE_POS.load(Ordering::SeqCst),
-        player_info.iter().map(|a| a.1.clone()).collect::<Vec<_>>(),
-    );
+    let str = HofBackup {
+        current_page: PAGE_POS.load(Ordering::SeqCst),
+        characters: player_info.iter().map(|a| a.1.clone()).collect::<Vec<_>>(),
+        export_time: Some(Utc::now()),
+    };
 
     let str = serde_json::to_string(&str).unwrap();
 
@@ -222,6 +225,13 @@ fn export_backup(
     e.write_all(str.as_bytes()).unwrap();
     let compressed_bytes = e.finish().unwrap();
     _ = std::fs::write(&format!("{server_ident}.zhof"), &compressed_bytes);
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct HofBackup {
+    current_page: usize,
+    characters: Vec<CharacterInfo>,
+    export_time: Option<DateTime<Utc>>,
 }
 
 fn restore_backup(
@@ -261,13 +271,28 @@ fn restore_backup(
         };
 
         let str = String::from_utf8(uncompressed).unwrap();
-        let (pos, chars) =
-            serde_json::from_str::<(usize, Vec<CharacterInfo>)>(&str).unwrap();
 
-        for char in chars {
+        let backup = match serde_json::from_str::<HofBackup>(&str) {
+            Ok(x) => x,
+            _ => {
+                match serde_json::from_str::<(usize, Vec<CharacterInfo>)>(&str)
+                {
+                    Ok(x) => HofBackup {
+                        current_page: x.0,
+                        characters: x.1,
+                        export_time: None,
+                    },
+                    Err(_) => {
+                        continue;
+                    }
+                }
+            }
+        };
+
+        for char in backup.characters {
             handle_new_char_info(char, equipment, player_info);
         }
-        PAGE_POS.store(pos, Ordering::SeqCst);
+        PAGE_POS.store(backup.current_page, Ordering::SeqCst);
         FETCHED_PLAYERS.store(player_info.len(), Ordering::SeqCst);
     }
 }
