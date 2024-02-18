@@ -22,5 +22,5 @@ tokio = { version = "1.36.0", features = ["net", "rt-multi-thread", "fs"] }
 twox-hash = { version = "1.6.3", default-features = false }
 
 [profile.release]
-debug = true
-# lto = true
+strip = true
+lto = true
