@@ -6,17 +6,13 @@ Both normal and SSO (S&F Account) characters are supported.
 
 The HoF will initially be fetched from a recent snapshot of the server. If you want a more recent version, you can crawl the server data yourself via the buttons on the left side. If you have multiple accounts, or want to pause the progress, you can store this crawling progress to disk and restore it at a later date. 
 
-<img width="764" alt="helper" src="https://github.com/the-marenga/sf-scrapbook-helper/assets/107524538/39dfbb4c-9166-46f0-85f7-d4e13aed7c97">
-
+<img width="912" src="https://github.com/the-marenga/sf-scrapbook-helper/assets/107524538/bcd972fb-ebbc-4e1c-80de-1352b4b841aa">
 
 ## Privacy Notice
-The HoF equipment information is stored on my server. If you want to have your account data removed from that data set, feel free to open an issue, or write me a mail with the server and username:
+If you want to have your account data (username+equipment) removed from the online HoF data set, or you represent playagames and you have an issue with the HoF data being shared at all, feel free to open an issue, or contact me via:
 
-`remove_me@marenga.dev`
+`remove_hof@marenga.dev`
 
-If you represent playagames and you have any issues with the HoF data being shared, feel free to write me under:
-
-`contact@marenga.dev`
 
 ## Building
 - Install [Rust](https://rustup.rs/)
