@@ -12,7 +12,7 @@ use std::{
 use chrono::Local;
 use crawler::{FETCHED_PLAYERS, PAGE_POS};
 use eframe::egui::{self, CentralPanel, Context, Layout, SidePanel};
-use observer::{observe, ObserverCommand, ObserverInfo};
+use observer::{observe, ObserverCommand, ObserverInfo, INITIAL_LOAD_FINISHED};
 use once_cell::sync::OnceCell;
 use player::{handle_player, PlayerCommand, PlayerInfo};
 use serde::{Deserialize, Serialize};
@@ -27,6 +27,10 @@ use tokio::{runtime::Runtime, task::JoinHandle};
 static TOTAL_PLAYERS: AtomicUsize = AtomicUsize::new(0);
 
 fn main() -> Result<(), eframe::Error> {
+    env_logger::builder()
+        .filter_level(log::LevelFilter::Warn)
+        .init();
+
     let rt = Runtime::new().expect("Unable to create Runtime");
     let _enter = rt.enter();
 
@@ -35,7 +39,7 @@ fn main() -> Result<(), eframe::Error> {
         ..Default::default()
     };
     eframe::run_native(
-        "Scrapbook Helper v0.1",
+        format!("Scrapbook Helper v{}", env!("CARGO_PKG_VERSION")).as_str(),
         options,
         Box::new(|cc| {
             cc.egui_ctx.set_pixels_per_point(1.4);
@@ -73,7 +77,6 @@ enum Stage {
 
         last_player_response: Option<PlayerInfo>,
         auto_battle: bool,
-        server_url: String,
     },
     SSOLoggingIn(
         Possible<Result<Vec<CharacterSession>, SFError>>,
@@ -87,7 +90,7 @@ impl Stage {
         Stage::Login {
             name: "".to_owned(),
             password: "".to_owned(),
-            server: "s1.sfgame.de".to_owned(),
+            server: "f1.sfgame.net".to_owned(),
             sso_name: "".to_string(),
             sso_password: "".to_string(),
             error,
@@ -125,45 +128,44 @@ impl eframe::App for Stage {
                     });
                     ui.horizontal(|ui| {
                         let password_label = ui.label("Password: ");
-                        ui.add_sized(
-                            ui.available_size(),
-                            egui::TextEdit::singleline(password).password(true),
-                        )
-                        .labelled_by(password_label.id);
+                        let pw = ui
+                            .add_sized(
+                                ui.available_size(),
+                                egui::TextEdit::singleline(password)
+                                    .password(true),
+                            )
+                            .labelled_by(password_label.id);
+
+                        if pw.lost_focus()
+                            && pw.ctx.input(|a| a.key_down(egui::Key::Enter))
+                        {
+                            login_normal(
+                                server, name, password, &mut new_stage, error,
+                            );
+                        }
                     });
                     ui.horizontal(|ui| {
                         let server_label = ui.label("Server: ");
-                        ui.add_sized(
-                            ui.available_size(),
-                            egui::TextEdit::singleline(server),
-                        )
-                        .labelled_by(server_label.id);
+                        let pw = ui
+                            .add_sized(
+                                ui.available_size(),
+                                egui::TextEdit::singleline(server),
+                            )
+                            .labelled_by(server_label.id);
+                        if pw.lost_focus()
+                            && pw.ctx.input(|a| a.key_down(egui::Key::Enter))
+                        {
+                            login_normal(
+                                server, name, password, &mut new_stage, error,
+                            );
+                        }
                     });
                     ui.add_space(12.0);
 
                     if ui.button("Login").clicked() {
-                        let Some(sc) = ServerConnection::new(server) else {
-                            *error = Some("Invalid Server URL".to_string());
-                            return;
-                        };
-
-                        let session = sf_api::session::CharacterSession::new(
-                            name,
-                            password,
-                            sc.clone(),
+                        login_normal(
+                            server, name, password, &mut new_stage, error,
                         );
-
-                        let arc = Arc::new(Mutex::new(None));
-                        let arc2 = arc.clone();
-
-                        let handle = tokio::spawn(async move {
-                            let mut session = session;
-                            let res = session.login().await;
-                            *arc2.lock().unwrap() = Some((res, session));
-                            let c = CONTEXT.get().unwrap();
-                            c.request_repaint();
-                        });
-                        new_stage = Some(Stage::LoggingIn(arc, handle, sc));
                     }
                     ui.add_space(12.0);
                     ui.heading("SSO Login");
@@ -178,51 +180,23 @@ impl eframe::App for Stage {
                     });
                     ui.horizontal(|ui| {
                         let password_label = ui.label("Password: ");
-                        ui.add_sized(
-                            ui.available_size(),
-                            egui::TextEdit::singleline(sso_password)
-                                .password(true),
-                        )
-                        .labelled_by(password_label.id);
+                        let pw = ui
+                            .add_sized(
+                                ui.available_size(),
+                                egui::TextEdit::singleline(sso_password)
+                                    .password(true),
+                            )
+                            .labelled_by(password_label.id);
+
+                        if pw.lost_focus()
+                            && pw.ctx.input(|a| a.key_down(egui::Key::Enter))
+                        {
+                            login_sso(sso_name, sso_password, &mut new_stage);
+                        }
                     });
 
                     if ui.button("SSO Login").clicked() {
-                        let arc = Arc::new(Mutex::new(None));
-                        let output = arc.clone();
-
-                        let username = sso_name.clone();
-                        let password = sso_password.clone();
-
-                        let handle = tokio::spawn(async move {
-                            let account = match SFAccount::login(
-                                username, password,
-                            )
-                            .await
-                            {
-                                Ok(account) => account,
-                                Err(err) => {
-                                    *output.lock().unwrap() = Some(Err(err));
-                                    return;
-                                }
-                            };
-
-                            match account.characters().await {
-                                Ok(character) => {
-                                    let vec = character
-                                        .into_iter()
-                                        .flatten()
-                                        .collect::<Vec<_>>();
-                                    *output.lock().unwrap() = Some(Ok(vec));
-                                }
-                                Err(err) => {
-                                    *output.lock().unwrap() = Some(Err(err));
-                                }
-                            };
-                            let c = CONTEXT.get().unwrap();
-                            c.request_repaint();
-                        });
-
-                        new_stage = Some(Stage::SSOLoggingIn(arc, handle));
+                        login_sso(sso_name, sso_password, &mut new_stage);
                     }
                     ui.add_space(12.0);
 
@@ -321,7 +295,7 @@ impl eframe::App for Stage {
                         let (info_sender, info_recv) =
                             std::sync::mpsc::channel();
 
-                        let initial_count = 1;
+                        let initial_count = 0;
 
                         let Some(sb) = gs.unlocks.scrapbok.clone() else {
                             *self = Stage::start_page(Some(
@@ -352,6 +326,7 @@ impl eframe::App for Stage {
                             gs.character.level,
                             player_hash,
                             server_hash,
+                            server_url,
                         ));
 
                         let max_level = gs.character.level;
@@ -381,7 +356,6 @@ impl eframe::App for Stage {
                             player_receiver: pi_recv,
                             last_player_response: None,
                             auto_battle: false,
-                            server_url,
                         };
                     }
                     None => {
@@ -409,8 +383,29 @@ impl eframe::App for Stage {
                 player_receiver,
                 last_player_response,
                 auto_battle,
-                server_url,
             } => {
+                if !INITIAL_LOAD_FINISHED.load(Ordering::SeqCst) {
+                    ui.with_layout(
+                        Layout::centered_and_justified(
+                            egui::Direction::TopDown,
+                        ),
+                        |ui| {
+                            ui.group(|ui| {
+                                ui.set_height(ui.available_height() / 8.0);
+                                ui.set_width(ui.available_width() / 1.5);
+
+                                ui.label(
+                                    "Loading data. This might take a few \
+                                     seconds. Please wait",
+                                );
+
+                                ui.spinner();
+                            })
+                        },
+                    );
+                    return;
+                }
+
                 if let Ok(resp) = receiver.try_recv() {
                     *last_response = resp
                 }
@@ -455,70 +450,54 @@ impl eframe::App for Stage {
                             TOTAL_PLAYERS.fetch_add(0, Ordering::SeqCst)
                         ));
 
-                        ui.add_space(20.0);
+                        ui.add_space(10.0);
 
-                        egui::Grid::new("hof_grid").show(ui, |ui| {
-                            ui.label("Crawl threads/accounts").on_hover_text(
-                                "The amount of background accounts created to \
-                                 fetch the HoF with",
-                            );
-                            ui.add(
-                                egui::DragValue::new(active)
-                                    .clamp_range(1..=10),
-                            );
-                            if ui.button("Set").clicked() {
-                                sender
-                                    .send(ObserverCommand::SetAccounts(*active))
-                                    .unwrap();
-                            }
-                            ui.end_row();
-                            ui.label("Max target level").on_hover_text(
-                                "The highest level of players, that will be \
-                                 displayed. Also effects the auto-battle \
-                                 targets",
-                            );
-                            ui.add(
-                                egui::DragValue::new(max_level)
-                                    .clamp_range(1..=800),
-                            );
-                            if ui.button("Set").clicked() {
-                                sender
-                                    .send(ObserverCommand::SetMaxLevel(
-                                        *max_level,
-                                    ))
-                                    .unwrap();
-                            }
-                            ui.end_row();
+                        ui.group(|ui| {
+                            egui::Grid::new("hof_grid").show(ui, |ui| {
+                                ui.label("Active crawling threads")
+                                    .on_hover_text(
+                                        "The amount of background accounts \
+                                         currently working on downloading the \
+                                         HoF",
+                                    );
+                                if ui
+                                    .add(
+                                        egui::DragValue::new(active)
+                                            .clamp_range(0..=10),
+                                    )
+                                    .changed()
+                                {
+                                    sender
+                                        .send(ObserverCommand::SetAccounts(
+                                            *active,
+                                        ))
+                                        .unwrap();
+                                };
+                                ui.end_row();
+                                ui.label("Max target level").on_hover_text(
+                                    "The highest level of players, that will \
+                                     be displayed. Also effects the \
+                                     auto-battle targets",
+                                );
+                                if ui
+                                    .add(
+                                        egui::DragValue::new(max_level)
+                                            .clamp_range(1..=800),
+                                    )
+                                    .changed()
+                                {
+                                    sender
+                                        .send(ObserverCommand::SetMaxLevel(
+                                            *max_level,
+                                        ))
+                                        .unwrap();
+                                }
+
+                                ui.end_row();
+                            })
                         });
 
                         ui.add_space(10.0);
-
-                        ui.horizontal(|ui| {
-                            if ui
-                                .button("Pause Crawling")
-                                .on_hover_text(
-                                    "Stops all background characters from \
-                                     crawling new HoF pages. Note that they \
-                                     will finish their current page, so there \
-                                     might be a short delay",
-                                )
-                                .clicked()
-                            {
-                                sender.send(ObserverCommand::Pause).unwrap()
-                            }
-                            if ui
-                                .button("Start Crawling")
-                                .on_hover_text(
-                                    "Starts crawling the HoF with the amount \
-                                     of background characters (threads) set",
-                                )
-                                .clicked()
-                            {
-                                sender.send(ObserverCommand::Start).unwrap()
-                            }
-                        });
-
-                        ui.add_space(20.0);
 
                         let mut free_fight_possible = false;
                         ui.label(match gs.arena.next_free_fight {
@@ -579,13 +558,7 @@ impl eframe::App for Stage {
                             )
                             .clicked()
                         {
-                            sender
-                                .send(ObserverCommand::Export(
-                                    server_url
-                                        .trim_start_matches("https")
-                                        .to_string(),
-                                ))
-                                .unwrap();
+                            sender.send(ObserverCommand::Export).unwrap();
                         }
 
                         if ui
@@ -596,13 +569,18 @@ impl eframe::App for Stage {
                             )
                             .clicked()
                         {
-                            sender
-                                .send(ObserverCommand::Restore(
-                                    server_url
-                                        .trim_start_matches("https")
-                                        .to_string(),
-                                ))
-                                .unwrap();
+                            sender.send(ObserverCommand::Restore).unwrap();
+                        }
+
+                        if ui
+                            .button("Clear HoF")
+                            .on_hover_text(
+                                "Clears all data fetched from the HoF (in \
+                                 case you want to start from 0)",
+                            )
+                            .clicked()
+                        {
+                            sender.send(ObserverCommand::Clear).unwrap();
                         }
 
                         if ui
@@ -636,32 +614,49 @@ impl eframe::App for Stage {
                     });
                 });
                 CentralPanel::default().show(ctx, |ui| {
+                    ui.set_width(ui.available_width());
                     ui.vertical_centered(|ui| {
+                        ui.set_width(ui.available_width());
                         ui.heading("Possible Targets");
                         egui::ScrollArea::vertical().show(ui, |ui| {
-                            egui::Grid::new("hof_grid").show(ui, |ui| {
-                                ui.label("Missing");
-                                ui.label("Name");
-                                ui.label("Level");
-                                ui.label("Fight");
-                                ui.end_row();
-                                for (count, info) in &last_response.best_players
-                                {
-                                    ui.label(count.to_string());
-                                    ui.label(&info.name);
-                                    ui.label(info.level.to_string());
-                                    if ui.button("Fight").clicked() {
-                                        player_sender
-                                            .send(PlayerCommand::Attack {
-                                                name: info.name.clone(),
-                                                uid: info.uid,
-                                                mush: true,
-                                            })
-                                            .unwrap();
-                                    }
+                            ui.set_width(ui.available_width());
+
+                            egui::Grid::new("hof_grid")
+                                .num_columns(4)
+                                .striped(true)
+                                .spacing((20.0, 10.0))
+                                .min_col_width(20.0)
+                                .show(ui, |ui| {
+                                    ui.label("Fight");
+                                    ui.label("Missing");
+                                    ui.label("Level");
+                                    // No chance in hell, this is how you are
+                                    // supposed to do this
+                                    ui.label(format!(
+                                        "Name{}",
+                                        vec![' '; 10_000]
+                                            .into_iter()
+                                            .collect::<String>()
+                                    ));
                                     ui.end_row();
-                                }
-                            });
+                                    for (count, info) in
+                                        &last_response.best_players
+                                    {
+                                        if ui.button("Fight").clicked() {
+                                            player_sender
+                                                .send(PlayerCommand::Attack {
+                                                    name: info.name.clone(),
+                                                    uid: info.uid,
+                                                    mush: true,
+                                                })
+                                                .unwrap();
+                                        }
+                                        ui.label(count.to_string());
+                                        ui.label(info.level.to_string());
+                                        ui.label(&info.name);
+                                        ui.end_row();
+                                    }
+                                });
                         });
                     });
                 });
@@ -672,6 +667,70 @@ impl eframe::App for Stage {
             *self = stage;
         }
     }
+}
+
+fn login_sso(
+    sso_name: &str,
+    sso_password: &str,
+    new_stage: &mut Option<Stage>,
+) {
+    let arc = Arc::new(Mutex::new(None));
+    let output = arc.clone();
+
+    let username = sso_name.to_string();
+    let password = sso_password.to_string();
+
+    let handle = tokio::spawn(async move {
+        let account = match SFAccount::login(username, password).await {
+            Ok(account) => account,
+            Err(err) => {
+                *output.lock().unwrap() = Some(Err(err));
+                return;
+            }
+        };
+
+        match account.characters().await {
+            Ok(character) => {
+                let vec = character.into_iter().flatten().collect::<Vec<_>>();
+                *output.lock().unwrap() = Some(Ok(vec));
+            }
+            Err(err) => {
+                *output.lock().unwrap() = Some(Err(err));
+            }
+        };
+        let c = CONTEXT.get().unwrap();
+        c.request_repaint();
+    });
+
+    *new_stage = Some(Stage::SSOLoggingIn(arc, handle));
+}
+
+fn login_normal(
+    server: &str,
+    name: &str,
+    password: &str,
+    new_stage: &mut Option<Stage>,
+    error: &mut Option<String>,
+) {
+    let Some(sc) = ServerConnection::new(server) else {
+        *error = Some("Invalid Server URL".to_string());
+        return;
+    };
+
+    let session =
+        sf_api::session::CharacterSession::new(name, password, sc.clone());
+
+    let arc = Arc::new(Mutex::new(None));
+    let arc2 = arc.clone();
+
+    let handle = tokio::spawn(async move {
+        let mut session = session;
+        let res = session.login().await;
+        *arc2.lock().unwrap() = Some((res, session));
+        let c = CONTEXT.get().unwrap();
+        c.request_repaint();
+    });
+    *new_stage = Some(Stage::LoggingIn(arc, handle, sc));
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
