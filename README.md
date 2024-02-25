@@ -1,6 +1,6 @@
 # S&F Scrapbook Helper
 A simple tool to help you fill the scrapbook by showing you the players with the most items, that you have not yet collected. 
-Cou can either attack the best players manually (which might cost a mushroom), or click the automate button to battle the best character as soon, as it is free. 
+you can either attack the best players manually (which might cost a mushroom), or click the automate button to battle the best character as soon, as it is free. 
 
 Both normal and SSO (S&F Account) characters are supported.
 
