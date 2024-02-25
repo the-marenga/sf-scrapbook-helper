@@ -21,4 +21,4 @@ twox-hash = { version = "1.6.3", default-features = false }
 
 [profile.release]
 strip = true
-lto = true
+lto = true#

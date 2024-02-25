@@ -16,6 +16,7 @@ use flate2::{
 };
 use nohash_hasher::IntMap;
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use sf_api::{
     gamestate::unlockables::{EquipmentIdent, ScrapBook},
     session::ServerConnection,
@@ -65,6 +66,7 @@ pub enum ObserverCommand {
 }
 
 pub static INITIAL_LOAD_FINISHED: AtomicBool = AtomicBool::new(false);
+pub static SHOULD_UPDATE: AtomicBool = AtomicBool::new(false);
 
 #[allow(clippy::too_many_arguments)]
 pub async fn observe(
@@ -162,6 +164,8 @@ pub async fn observe(
         &equipment, &target, &player_info, max_level, &output, &acccounts,
         &data_time,
     );
+
+    _ = check_update().await;
 
     let mut last_tl = target.items.len();
     let mut last_pc = player_info.len();
@@ -271,6 +275,32 @@ pub async fn observe(
 
         tokio::time::sleep(Duration::from_millis(200)).await;
     }
+}
+
+async fn check_update() -> Result<(), Box<dyn std::error::Error>> {
+    let client = reqwest::ClientBuilder::new()
+        .user_agent("sf-scrapbook-helper")
+        .build()?;
+    let url =
+        "https://api.github.com/repos/the-marenga/sf-scrapbook-helper/tags";
+    let resp = client.get(url).send().await?;
+
+    let text = resp.text().await?;
+
+    #[derive(Debug, Deserialize)]
+    struct GitTag {
+        name: String,
+    }
+
+    let tags: Vec<GitTag> = serde_json::from_str(&text)?;
+
+    let should_update = tags.first().map_or(false, |newest| {
+        newest.name != format!("v{}", env!("CARGO_PKG_VERSION"))
+    });
+
+    SHOULD_UPDATE.store(should_update, Ordering::SeqCst);
+
+    Ok(())
 }
 
 async fn fetch_online_hof(

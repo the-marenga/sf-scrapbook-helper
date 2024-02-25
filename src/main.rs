@@ -12,7 +12,10 @@ use std::{
 use chrono::Local;
 use crawler::{FETCHED_PLAYERS, PAGE_POS};
 use eframe::egui::{self, CentralPanel, Context, Layout, SidePanel};
-use observer::{observe, ObserverCommand, ObserverInfo, INITIAL_LOAD_FINISHED};
+use observer::{
+    observe, ObserverCommand, ObserverInfo, INITIAL_LOAD_FINISHED,
+    SHOULD_UPDATE,
+};
 use once_cell::sync::OnceCell;
 use player::{handle_player, PlayerCommand, PlayerInfo};
 use serde::{Deserialize, Serialize};
@@ -428,6 +431,11 @@ impl eframe::App for Stage {
                 };
                 SidePanel::left("left").show(ctx, |ui| {
                     ui.vertical_centered(|ui| {
+
+                        if SHOULD_UPDATE.load(Ordering::SeqCst) {
+                            ui.hyperlink_to("New Version Available", "https://github.com/the-marenga/sf-scrapbook-helper/releases/latest");
+                        }
+
                         ui.heading(&gs.character.name.clone());
 
                         ui.label(format!(
