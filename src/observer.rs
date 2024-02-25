@@ -16,7 +16,6 @@ use flate2::{
 };
 use nohash_hasher::IntMap;
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
 use sf_api::{
     gamestate::unlockables::{EquipmentIdent, ScrapBook},
     session::ServerConnection,
