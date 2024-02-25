@@ -50,6 +50,7 @@ impl Ord for CharacterInfo {
 pub struct ObserverInfo {
     pub best_players: Vec<(usize, CharacterInfo)>,
     pub target_list: String,
+    pub time: Option<DateTime<Utc>>,
 }
 
 pub enum ObserverCommand {
@@ -127,20 +128,39 @@ pub async fn observe(
         acccounts.push((handle, sender));
     }
 
-    if !restore_backup(server_ident, &mut equipment, &mut player_info) {
-        // We could not restore an existing backup, so we fetch one online
-        match fetch_online_hof(server_ident).await {
-            Ok(_) => {
-                // If we managed to fetch one, we should load it
-                restore_backup(server_ident, &mut equipment, &mut player_info);
-            }
-            Err(e) => {
-                eprintln!("Could not fetch HoF: {e}")
-            }
+    let online_time = fetch_online_hof_date(server_ident).await.ok();
+
+    let backup_time =
+        match restore_backup(server_ident, &mut equipment, &mut player_info) {
+            Some(s) => s,
+            None => None,
+        };
+
+    // Figure out, if the online version is newer, than the local backup
+    let fetch_online = match (online_time, backup_time) {
+        (Some(ot), Some(bt)) => {
+            let bt = bt.to_rfc2822();
+            let bt = DateTime::parse_from_rfc2822(&bt).unwrap().to_utc();
+            bt < ot
         }
+        (Some(_), None) => true,
+        (None, _) => false,
+    };
+
+    let mut data_time = if fetch_online {
+        online_time
+    } else {
+        backup_time
+    };
+
+    // If the online backup is newer, we fetch it and restore it
+    if fetch_online && fetch_online_hof(server_ident).await.is_ok() {
+        _ = restore_backup(server_ident, &mut equipment, &mut player_info);
     }
+
     update_best_players(
         &equipment, &target, &player_info, max_level, &output, &acccounts,
+        &data_time,
     );
 
     let mut last_tl = target.items.len();
@@ -213,6 +233,7 @@ pub async fn observe(
                         FETCHED_PLAYERS.store(0, Ordering::SeqCst);
                         equipment.clear();
                         player_info.clear();
+                        data_time = None;
                     }
                 }
                 continue;
@@ -238,7 +259,7 @@ pub async fn observe(
         {
             update_best_players(
                 &equipment, &target, &player_info, max_level, &output,
-                &acccounts,
+                &acccounts, &data_time,
             );
             last_tl = target.items.len();
             last_pc = player_info.len();
@@ -270,6 +291,24 @@ async fn fetch_online_hof(
     }
 }
 
+async fn fetch_online_hof_date(
+    server_ident: &str,
+) -> Result<DateTime<Utc>, Box<dyn std::error::Error>> {
+    let resp = reqwest::get(format!(
+        "https://hof-cache.marenga.dev/{server_ident}.version"
+    ))
+    .await?;
+
+    match resp.error_for_status() {
+        Ok(r) => {
+            let text = r.text().await?;
+            let date_time = DateTime::parse_from_rfc2822(&text)?;
+            Ok(date_time.to_utc())
+        }
+        Err(e) => Err(e.into()),
+    }
+}
+
 fn export_backup(server_ident: &str, player_info: &IntMap<u32, CharacterInfo>) {
     let str = HofBackup {
         current_page: PAGE_POS.load(Ordering::SeqCst),
@@ -296,7 +335,7 @@ fn restore_backup(
     server_ident: &str,
     equipment: &mut HashMap<EquipmentIdent, HashSet<u32>>,
     player_info: &mut IntMap<u32, CharacterInfo>,
-) -> bool {
+) -> Option<Option<DateTime<Utc>>> {
     let options = [true, false];
 
     for is_compressed in options {
@@ -355,9 +394,9 @@ fn restore_backup(
         }
         PAGE_POS.store(backup.current_page, Ordering::SeqCst);
         FETCHED_PLAYERS.store(player_info.len(), Ordering::SeqCst);
-        return true;
+        return Some(backup.export_time);
     }
-    false
+    None
 }
 
 fn update_best_players(
@@ -367,6 +406,7 @@ fn update_best_players(
     max_level: u16,
     output: &Sender<ObserverInfo>,
     acccounts: &Vec<(JoinHandle<()>, UnboundedSender<CrawlerCommand>)>,
+    time: &Option<DateTime<Utc>>,
 ) {
     let mut scrapbook = target.items.clone();
     let mut per_player_counts = IntMap::with_capacity(player_info.len());
@@ -427,6 +467,7 @@ fn update_best_players(
         .send(ObserverInfo {
             best_players,
             target_list,
+            time: *time,
         })
         .is_err()
     {

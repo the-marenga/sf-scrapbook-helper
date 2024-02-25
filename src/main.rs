@@ -351,6 +351,7 @@ impl eframe::App for Stage {
                             last_response: ObserverInfo {
                                 best_players: Vec::new(),
                                 target_list: "".to_string(),
+                                time: None,
                             },
                             player_sender,
                             player_receiver: pi_recv,
@@ -449,6 +450,19 @@ impl eframe::App for Stage {
                             FETCHED_PLAYERS.fetch_add(0, Ordering::SeqCst),
                             TOTAL_PLAYERS.fetch_add(0, Ordering::SeqCst)
                         ));
+
+                        if let Some(time) = last_response.time {
+                            ui.add_space(10.0);
+                            ui.label(
+                                time.naive_local()
+                                    .format("%Y-%m-%d %H:%M")
+                                    .to_string(),
+                            )
+                            .on_hover_text(
+                                "The current HoF data was fetched at this \
+                                 point in time",
+                            );
+                        }
 
                         ui.add_space(10.0);
 
