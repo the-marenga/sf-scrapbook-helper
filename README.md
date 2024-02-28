@@ -1,4 +1,6 @@
 # S&F Scrapbook Helper
+![Build Status](https://img.shields.io/github/actions/workflow/status/the-marenga/sf-scrapbook-helper/rust.yml?branch=main)  [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT) [![Github All Releases](https://img.shields.io/github/downloads/the-marenga/sf-scrapbook-helper/total?logo=github)](https://github.com/the-marenga/sf-scrapbook-helper/releases/latest) [<img src='https://storage.ko-fi.com/cdn/kofi3.png?v=3' height='20'>](https://ko-fi.com/J3J0ULD4J)
+
 A simple tool to help you fill the scrapbook by showing you the players with the most items, that you have not yet collected. 
 You can either attack the best players manually (which might cost a mushroom), or click the automate button to battle the best character as soon, as it is free. 
 
