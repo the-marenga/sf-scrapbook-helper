@@ -107,7 +107,9 @@ pub struct CharacterInfo {
     name: String,
     uid: u32,
     level: u16,
+    #[serde(skip)]
     stats: Option<u32>,
+    #[serde(skip)]
     fetch_date: Option<NaiveDate>,
 }
 

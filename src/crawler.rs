@@ -267,3 +267,12 @@ pub struct WorkerQue {
     pub in_flight_accounts: Vec<String>,
     pub order: CrawlingOrder,
 }
+
+impl WorkerQue {
+    pub fn count_remaining(&self) -> usize {
+        self.todo_pages.len() * PER_PAGE
+            + self.todo_accounts.len()
+            + self.in_flight_pages.len() * PER_PAGE
+            + self.in_flight_accounts.len()
+    }
+}

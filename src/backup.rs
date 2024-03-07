@@ -113,6 +113,9 @@ pub async fn get_newest_backup(
     fetch_online: bool,
 ) -> Option<Box<ZHofBackup>> {
     let mut backup = ZHofBackup::read(&server_ident).await;
+    if let Err(e) = &backup {
+        println!("{e}")
+    };
     if !fetch_online {
         return backup.ok().map(Box::new);
     }
@@ -132,7 +135,6 @@ pub async fn get_newest_backup(
     };
     // If the online backup is newer, we fetch it and restore it
     if fetch_online && fetch_online_hof(&server_ident).await.is_ok() {
-        println!("Fetching online Backup");
         backup = ZHofBackup::read(&server_ident).await;
     }
     backup.ok().map(Box::new)
@@ -155,16 +157,14 @@ pub struct ZHofBackup {
 }
 
 impl ZHofBackup {
-    pub async fn write(&mut self, ident: &str) -> Result<(), std::io::Error> {
-        for char in &mut self.characters {
-            char.fetch_date = None;
-            char.stats = None;
-        }
+    pub async fn write(&self, ident: &str) -> Result<(), std::io::Error> {
         let serialized = serde_json::to_string(&self).unwrap();
         let file = tokio::fs::File::create(format!("{}.zhof", ident)).await?;
         let mut encoder = ZlibEncoder::new(file);
         encoder.write_all(serialized.as_bytes()).await?;
-        encoder.flush().await
+        encoder.flush().await?;
+        println!("Finished writing");
+        Ok(())
     }
 
     pub async fn read(ident: &str) -> Result<ZHofBackup, std::io::Error> {
@@ -174,6 +174,7 @@ impl ZHofBackup {
             async_compression::tokio::bufread::ZlibDecoder::new(reader);
         let mut buffer = Vec::new();
         tokio::io::AsyncReadExt::read_to_end(&mut decoder, &mut buffer).await?;
+
         let deserialized = serde_json::from_slice(&buffer)?;
         Ok(deserialized)
     }

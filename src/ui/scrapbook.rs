@@ -3,8 +3,8 @@ use iced::{
     alignment::Horizontal,
     theme,
     widget::{
-        button, checkbox, column, horizontal_space, pick_list, row, scrollable,
-        text,
+        button, checkbox, column, horizontal_space, pick_list, progress_bar,
+        row, scrollable, text, vertical_space,
     },
     Alignment, Element, Length,
 };
@@ -37,68 +37,6 @@ pub fn view_scrapbook<'a>(
         // .padding(15)
         .spacing(10);
 
-    let sid = server.ident.id;
-
-    match &server.crawling {
-        CrawlingStatus::Crawling { threads, que, .. } => {
-            let thread_num = number_input(*threads, max_threads, move |nv| {
-                Message::CrawlerSetThreads {
-                    server: sid,
-                    new_count: nv,
-                }
-            });
-            let thread_num =
-                row!(text("Threads: "), horizontal_space(), thread_num);
-            left_col = left_col.push(thread_num);
-
-            let aid = player.ident;
-            let max_lvl = number_input(player.max_level, 9999, move |nv| {
-                Message::PlayerSetMaxLvl {
-                    ident: aid,
-                    max: nv,
-                }
-            });
-
-            let max_lvl = row!(text("Max Level:"), horizontal_space(), max_lvl);
-
-            left_col = left_col.push(max_lvl);
-            let clear = button("Clear HoF").on_press(Message::ClearHof(sid));
-            let save = button("Save HoF").on_press(Message::SaveHoF(sid));
-            left_col = left_col.push(
-                column!(row!(clear, save).spacing(10))
-                    .align_items(Alignment::Center),
-            );
-            let lock = que.lock().unwrap();
-            let theme_picker = pick_list(
-                [
-                    CrawlingOrder::Random,
-                    CrawlingOrder::TopDown,
-                    CrawlingOrder::BottomUp,
-                ],
-                Some(lock.order),
-                |nv| Message::OrderChange {
-                    server: server.ident.id,
-                    new: nv,
-                },
-            );
-            drop(lock);
-
-            left_col = left_col.push(row!(
-                text("Crawling Order:").width(Length::FillPortion(1)),
-                theme_picker.width(Length::FillPortion(1))
-            ))
-        }
-        CrawlingStatus::Waiting => {
-            left_col = left_col.push(text("Waiting for Player...").size(20));
-        }
-        CrawlingStatus::Restoring => {
-            left_col = left_col.push(text("Loading Data...").size(20));
-        }
-        CrawlingStatus::CrawlingFailed(_) => {
-            left_col = left_col.push(text("Crawling Failed").size(20));
-        }
-    }
-
     left_col = left_col.push(row!(
         text("Mushrooms:").width(Length::FillPortion(1)),
         text(gs.character.mushrooms)
@@ -123,13 +61,25 @@ pub fn view_scrapbook<'a>(
             .horizontal_alignment(Horizontal::Right)
     ));
 
+    let aid = player.ident;
+    let max_lvl = number_input(player.max_level, 9999, move |nv| {
+        Message::PlayerSetMaxLvl {
+            ident: aid,
+            max: nv,
+        }
+    });
+
+    let max_lvl = row!(text("Max Level:"), horizontal_space(), max_lvl)
+        .align_items(Alignment::Center);
+    left_col = left_col.push(max_lvl);
+
     match &gs.arena.next_free_fight {
         Some(x) if *x >= Local::now() => {
             let t = text("Next free fight:");
             let secs = (*x - Local::now()).num_seconds();
             let r = row!(
                 t.width(Length::FillPortion(1)),
-                text(format!("{secs}secs"))
+                text(format!("{secs}s"))
                     .width(Length::FillPortion(1))
                     .horizontal_alignment(Horizontal::Right)
             );
@@ -168,7 +118,77 @@ pub fn view_scrapbook<'a>(
             log = log.push(row.padding(5));
         }
 
-        left_col = left_col.push(log);
+        left_col = left_col.push(scrollable(log).height(Length::Fixed(200.0)));
+    }
+    left_col = left_col.push(vertical_space());
+
+    let sid = server.ident.id;
+    match &server.crawling {
+        CrawlingStatus::Crawling {
+            threads,
+            que,
+            player_info,
+            ..
+        } => {
+            let lock = que.lock().unwrap();
+            let remaining = lock.count_remaining();
+            let crawled = player_info.len();
+            let total = remaining + crawled;
+
+            let progress_text = text(format!("Fetched {}/{}", crawled, total));
+            left_col = left_col.push(progress_text);
+
+            let progress = progress_bar(0.0..=total as f32, crawled as f32).height(Length::Fixed(10.0));
+            left_col = left_col.push(progress);
+
+            let thread_num = number_input(*threads, max_threads, move |nv| {
+                Message::CrawlerSetThreads {
+                    server: sid,
+                    new_count: nv,
+                }
+            });
+            let thread_num =
+                row!(text("Threads: "), horizontal_space(), thread_num)
+                    .align_items(Alignment::Center);
+            left_col = left_col.push(thread_num);
+            let order_picker = pick_list(
+                [
+                    CrawlingOrder::Random,
+                    CrawlingOrder::TopDown,
+                    CrawlingOrder::BottomUp,
+                ],
+                Some(lock.order),
+                |nv| Message::OrderChange {
+                    server: server.ident.id,
+                    new: nv,
+                },
+            );
+            left_col = left_col.push(
+                row!(
+                    text("Crawling Order:").width(Length::FillPortion(1)),
+                    order_picker.width(Length::FillPortion(1))
+                )
+                .align_items(Alignment::Center),
+            );
+
+            let clear = button("Clear HoF").on_press(Message::ClearHof(sid));
+            let save = button("Save HoF").on_press(Message::SaveHoF(sid));
+            left_col = left_col.push(
+                column!(row!(clear, save).spacing(10))
+                    .align_items(Alignment::Center),
+            );
+
+            drop(lock);
+        }
+        CrawlingStatus::Waiting => {
+            left_col = left_col.push(text("Waiting for Player..."));
+        }
+        CrawlingStatus::Restoring => {
+            left_col = left_col.push(text("Loading Server Data..."));
+        }
+        CrawlingStatus::CrawlingFailed(_) => {
+            left_col = left_col.push(text("Crawling Failed"));
+        }
     }
 
     let mut name_bar = column!();

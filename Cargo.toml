@@ -23,3 +23,6 @@ sf-api = { git = "https://github.com/the-marenga/sf-api", version = "0.1.2" }
 titlecase = "2.2.1"
 tokio = { version = "1.36.0", default-features = false, features = ["fs"] }
 toml = "0.8.10"
+
+[build-dependencies]
+winres = "0.1.12"
