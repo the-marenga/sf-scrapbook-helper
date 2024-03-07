@@ -1,24 +1,25 @@
 [package]
 name = "sf-scrapbook-helper"
-version = "0.1.4"
+version = "0.2.0"
 edition = "2021"
 
-[dependencies]
-chrono = "0.4.34"
-eframe = "0.26"
-env_logger = "0.11.2"
-fastrand = "2.0.1"
-flate2 = "1.0.28"
-log = "0.4.20"
-nohash-hasher = "0.2.0"
-once_cell = "1.19.0"
-reqwest = { version = "0.11.24", features = ["gzip", "deflate", "brotli"] }
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
-sf-api = "0.1.1"
-tokio = { version = "1.36.0", features = ["net", "rt-multi-thread", "fs"] }
-twox-hash = { version = "1.6.3", default-features = false }
 
-[profile.release]
-strip = true
-lto = true#
+[dependencies]
+ahash = "0.8.11"
+async-compression = { version = "0.4.6", features = ["zlib"] }
+chrono = "0.4.34"
+fastrand = "2.0.1"
+iced = { version = "0.12", features = ["tokio", "lazy"] }
+iced_aw = { version = "0.8.0", default-features = false, features = [
+    "number_input",
+] }
+image = { version = "0.24.9", default-features = false, features = ["png"] }
+nohash-hasher = "0.2.0"
+open = "5.1.1"
+reqwest = { version = "0.11.24", features = ["gzip", "deflate", "brotli"] }
+serde = "1.0.197"
+serde_json = "1.0.114"
+sf-api = { git = "https://github.com/the-marenga/sf-api", version = "0.1.2" }
+titlecase = "2.2.1"
+tokio = { version = "1.36.0", default-features = false, features = ["fs"] }
+toml = "0.8.10"

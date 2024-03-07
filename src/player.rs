@@ -1,95 +1,108 @@
 use std::{
-    sync::{
-        mpsc::{Receiver, Sender},
-        Arc, Mutex,
-    },
+    sync::{Arc, Mutex},
     time::Duration,
 };
 
+use chrono::{DateTime, Local};
+use nohash_hasher::IntMap;
 use sf_api::{
-    command::Command, gamestate::GameState, session::CharacterSession,
+    gamestate::{unlockables::ScrapBook, GameState},
+    session::CharacterSession,
 };
 
-use crate::CONTEXT;
+use crate::{login::Auth, message::Message, AccountIdent, AttackTarget};
 
-pub enum PlayerInfo {
-    Victory { name: String, uid: u32 },
-    Lost { name: String },
+pub struct AccountInfo {
+    pub name: String,
+    pub ident: AccountIdent,
+    pub auth: Auth,
+    pub scrapbook: ScrapBook,
+    pub best: Vec<AttackTarget>,
+    pub last_updated: DateTime<Local>,
+    pub max_level: u16,
+    pub status: Arc<Mutex<AccountStatus>>,
+    pub blacklist: IntMap<u32, (String, usize)>,
+    pub auto_battle: bool,
+    pub attack_log: Vec<(DateTime<Local>, AttackTarget, bool)>,
 }
 
-pub enum PlayerCommand {
-    Attack { name: String, uid: u32, mush: bool },
-}
-
-pub async fn handle_player(
-    output: Sender<PlayerInfo>,
-    receiver: Receiver<PlayerCommand>,
-    mut session: CharacterSession,
-    gs: Arc<Mutex<GameState>>,
-) {
-    loop {
-        let Ok(cmd) = receiver.try_recv() else {
-            tokio::time::sleep(Duration::from_millis(100)).await;
-            continue;
-        };
-
-        match cmd {
-            PlayerCommand::Attack { name, uid, mush } => {
-                if !mush {
-                    tokio::time::sleep(Duration::from_millis(1000)).await;
-                }
-
-                for i in 0..2 {
-                    if i > 0 {
-                        tokio::time::sleep(Duration::from_secs(1)).await;
-                        println!("Logging in again");
-                        let resp1 = session.login().await.unwrap();
-                        let resp2 = session
-                            .send_command(&Command::UpdatePlayer)
-                            .await
-                            .unwrap();
-                        tokio::time::sleep(Duration::from_secs(10)).await;
-                        gs.lock().unwrap().update(resp1).unwrap();
-                        gs.lock().unwrap().update(resp2).unwrap();
-                        let c = CONTEXT.get().unwrap();
-                        c.request_repaint();
-                    }
-
-                    let res = session
-                        .send_command(&Command::Fight {
-                            name: name.clone(),
-                            use_mushroom: mush,
-                        })
-                        .await;
-
-                    let resp = match res {
-                        Ok(x) => x,
-                        Err(err) => {
-                            println!("Error: {err}");
-                            continue;
-                        }
-                    };
-
-                    let mut gs = gs.lock().unwrap();
-                    gs.update(resp).unwrap();
-
-                    let Some(fight) = &gs.last_fight else {
-                        println!("No fight");
-                        continue;
-                    };
-                    if fight.has_player_won {
-                        output.send(PlayerInfo::Victory { name, uid }).unwrap();
-                    } else {
-                        output.send(PlayerInfo::Lost { name }).unwrap();
-                    }
-                    let c = CONTEXT.get().unwrap();
-                    c.request_repaint();
-                    break;
-                }
-
-                while receiver.try_recv().is_ok() {}
-            }
+impl AccountInfo {
+    pub fn new(
+        name: &str,
+        auth: Auth,
+        account_ident: AccountIdent,
+    ) -> AccountInfo {
+        AccountInfo {
+            name: name.to_string(),
+            auth,
+            scrapbook: ScrapBook {
+                items: Default::default(),
+                monster: Default::default(),
+            },
+            best: vec![],
+            last_updated: Local::now(),
+            max_level: 0,
+            status: Arc::new(Mutex::new(AccountStatus::LoggingIn)),
+            blacklist: Default::default(),
+            auto_battle: false,
+            ident: account_ident,
+            attack_log: vec![],
         }
-        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+}
+
+pub enum AccountStatus {
+    LoggingIn,
+    Idle(Box<CharacterSession>, Box<GameState>),
+    Busy(Box<GameState>),
+    Error(String),
+}
+
+impl AccountStatus {
+    pub fn take_session(&mut self) -> Option<Box<CharacterSession>> {
+        let mut res = None;
+        *self = match std::mem::replace(self, AccountStatus::LoggingIn) {
+            AccountStatus::Idle(a, b) => {
+                res = Some(a);
+                AccountStatus::Busy(b)
+            }
+            x => x,
+        };
+        res
+    }
+
+    pub fn put_session(&mut self, session: Box<CharacterSession>) {
+        *self = match std::mem::replace(self, AccountStatus::LoggingIn) {
+            AccountStatus::Busy(a) => AccountStatus::Idle(session, a),
+            x => x,
+        };
+    }
+}
+
+pub struct AutoAttackChecker {
+    pub player_status: Arc<Mutex<AccountStatus>>,
+    pub ident: AccountIdent,
+}
+
+impl AutoAttackChecker {
+    pub async fn check(&mut self) -> Message {
+        let next_fight: Option<DateTime<Local>> = {
+            match &*self.player_status.lock().unwrap() {
+                AccountStatus::Idle(_, session) => {
+                    session.arena.next_free_fight
+                }
+                _ => None,
+            }
+        };
+        if let Some(next) = next_fight {
+            let remaining = next - Local::now();
+            if let Ok(remaining) = remaining.to_std() {
+                tokio::time::sleep(remaining).await;
+            }
+        };
+        tokio::time::sleep(Duration::from_millis(fastrand::u64(500..=3000)))
+            .await;
+
+        Message::AutoFightPossible { ident: self.ident }
     }
 }

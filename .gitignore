@@ -1,4 +1,3 @@
 /target
-*.player
-*.hof
 *.zhof
+helper.toml
