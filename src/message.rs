@@ -17,6 +17,11 @@ use crate::{crawler::CrawlerState, *};
 
 #[derive(Debug, Clone)]
 pub enum Message {
+    PlayerRelogSuccess {
+        ident: AccountIdent,
+        gs: Box<GameState>,
+        session: Box<CharacterSession>,
+    },
     CopyBattleOrder {
         ident: AccountIdent,
     },
@@ -349,7 +354,7 @@ impl Helper {
                 player.max_level = gs.character.level;
 
                 let Some(scrapbook) = gs.unlocks.scrapbok.clone() else {
-                    *player.status.lock().unwrap() = AccountStatus::Error(
+                    *player.status.lock().unwrap() = AccountStatus::FatalError(
                         "This character does not have a scrapbook yet"
                             .to_string(),
                     );
@@ -437,7 +442,8 @@ impl Helper {
                 let Some((_, player)) = self.servers.get_ident(&ident) else {
                     return Command::none();
                 };
-                *player.status.lock().unwrap() = AccountStatus::Error(error)
+                *player.status.lock().unwrap() =
+                    AccountStatus::FatalError(error)
             }
             Message::ShowPlayer { ident } => {
                 let Some(server) = self.servers.0.get_mut(&ident.server_id)
@@ -557,9 +563,9 @@ impl Helper {
                 };
                 let Some(tp) = server.accounts.iter().find_map(|(_, b)| {
                     match &*b.status.lock().unwrap() {
-                        AccountStatus::LoggingIn | AccountStatus::Error(_) => {
-                            None
-                        }
+                        AccountStatus::LoggingInAgain
+                        | AccountStatus::LoggingIn
+                        | AccountStatus::FatalError(_) => None,
                         AccountStatus::Idle(_, gs)
                         | AccountStatus::Busy(gs) => {
                             Some(gs.other_players.total_player)
@@ -660,9 +666,59 @@ impl Helper {
 
                 return Command::batch([refetch, fight]);
             }
-            Message::PlayerCommandFailed { .. } => {
-                // TODO: Try logging in again or smth
-                todo!()
+            Message::PlayerCommandFailed { ident, mut session } => {
+                let Some(server) = self.servers.0.get_mut(&ident.server_id)
+                else {
+                    return Command::none();
+                };
+                let Some(player) = server.accounts.get_mut(&ident.account)
+                else {
+                    return Command::none();
+                };
+
+                let mut lock = player.status.lock().unwrap();
+                *lock = AccountStatus::LoggingInAgain;
+                drop(lock);
+
+                return Command::perform(
+                    async move {
+                        let Ok(resp) = session.login().await else {
+                            sleep(Duration::from_secs(5)).await;
+                            return Err(session);
+                        };
+                        let Ok(mut gamestate) = GameState::new(resp) else {
+                            sleep(Duration::from_secs(5)).await;
+                            return Err(session);
+                        };
+                        sleep(Duration::from_secs(5)).await;
+
+                        let Ok(resp) = session
+                            .send_command(
+                                &sf_api::command::Command::UpdatePlayer,
+                            )
+                            .await
+                        else {
+                            sleep(Duration::from_secs(5)).await;
+                            return Err(session);
+                        };
+
+                        if gamestate.update(resp).is_err() {
+                            sleep(Duration::from_secs(5)).await;
+                            return Err(session);
+                        };
+
+                        sleep(Duration::from_secs(5)).await;
+                        Ok((Box::new(gamestate), session))
+                    },
+                    move |res| match res {
+                        Ok((gs, session)) => {
+                            Message::PlayerRelogSuccess { ident, gs, session }
+                        }
+                        Err(session) => {
+                            Message::PlayerCommandFailed { ident, session }
+                        }
+                    },
+                );
             }
             Message::PlayerAttackResult {
                 ident,
@@ -689,11 +745,13 @@ impl Helper {
                 if let Err(e) = s.update(*resp) {
                     // it would *probably* be ok to just ignore this in most
                     // cases, but whatever
-                    *lock = AccountStatus::Error(e.to_string());
+                    *lock = AccountStatus::FatalError(e.to_string());
                     return Command::none();
                 };
 
-                let Some(last) = &s.last_fight else { todo!() };
+                let Some(last) = &s.last_fight else {
+                    return Command::none();
+                };
 
                 let nt = against.info.name.clone();
                 let ut = against.info.uid;
@@ -1073,6 +1131,21 @@ impl Helper {
                 }
 
                 return iced::clipboard::write(target_list.join("/"));
+            }
+            Message::PlayerRelogSuccess { ident, gs, session } => {
+                println!("Login success");
+                let Some(server) = self.servers.0.get_mut(&ident.server_id)
+                else {
+                    return Command::none();
+                };
+                let Some(player) = server.accounts.get_mut(&ident.account)
+                else {
+                    return Command::none();
+                };
+
+                let mut lock = player.status.lock().unwrap();
+                *lock = AccountStatus::Idle(session, gs);
+                drop(lock);
             }
         }
         Command::none()

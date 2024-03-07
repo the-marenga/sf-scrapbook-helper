@@ -55,7 +55,8 @@ pub enum AccountStatus {
     LoggingIn,
     Idle(Box<CharacterSession>, Box<GameState>),
     Busy(Box<GameState>),
-    Error(String),
+    FatalError(String),
+    LoggingInAgain,
 }
 
 impl AccountStatus {

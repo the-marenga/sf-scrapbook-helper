@@ -27,15 +27,15 @@ pub fn view_scrapbook<'a>(
         AccountStatus::LoggingIn => return text("Loggin in").size(20).into(),
         AccountStatus::Idle(_, gs) => gs,
         AccountStatus::Busy(gs) => gs,
-        AccountStatus::Error(err) => {
+        AccountStatus::FatalError(err) => {
             return text(format!("Erro: {err}")).size(20).into()
+        }
+        AccountStatus::LoggingInAgain => {
+            return text(format!("Logging in player again")).size(20).into()
         }
     };
 
-    let mut left_col = column!()
-        .align_items(Alignment::Center)
-        // .padding(15)
-        .spacing(10);
+    let mut left_col = column!().align_items(Alignment::Center).spacing(10);
 
     left_col = left_col.push(row!(
         text("Mushrooms:").width(Length::FillPortion(1)),
