@@ -1,3 +1,4 @@
+#![windows_subsystem = "windows"]
 #![allow(dead_code)]
 mod backup;
 mod config;
@@ -45,9 +46,9 @@ fn main() -> iced::Result {
         height: 400.0,
     });
 
-    let raw_img = include_bytes!("../assets/icon.png");
+    let raw_img = include_bytes!("../assets/icon.ico");
     let img =
-        image::load_from_memory_with_format(raw_img, image::ImageFormat::Png)
+        image::load_from_memory_with_format(raw_img, image::ImageFormat::Ico)
             .ok();
     if let Some(img) = img {
         let height = img.height();
