@@ -163,7 +163,7 @@ impl ZHofBackup {
         let mut encoder = ZlibEncoder::new(file);
         encoder.write_all(serialized.as_bytes()).await?;
         encoder.flush().await?;
-        println!("Finished writing");
+        encoder.shutdown().await?;
         Ok(())
     }
 

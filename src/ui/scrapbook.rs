@@ -138,7 +138,8 @@ pub fn view_scrapbook<'a>(
             let progress_text = text(format!("Fetched {}/{}", crawled, total));
             left_col = left_col.push(progress_text);
 
-            let progress = progress_bar(0.0..=total as f32, crawled as f32).height(Length::Fixed(10.0));
+            let progress = progress_bar(0.0..=total as f32, crawled as f32)
+                .height(Length::Fixed(10.0));
             left_col = left_col.push(progress);
 
             let thread_num = number_input(*threads, max_threads, move |nv| {
