@@ -4,6 +4,7 @@ use std::{
 };
 
 use chrono::{DateTime, Local};
+use log::{debug, info};
 use nohash_hasher::IntMap;
 use sf_api::{
     gamestate::{unlockables::ScrapBook, GameState},
@@ -127,7 +128,7 @@ impl AutoPoll {
                 }
             };
 
-            println!("Poll");
+            debug!("Sending poll {:?}", self.ident);
 
             let Ok(resp) = session
                 .send_command(&sf_api::command::Command::UpdatePlayer)

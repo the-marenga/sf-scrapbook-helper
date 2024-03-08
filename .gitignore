@@ -2,3 +2,4 @@
 *.zhof
 helper.toml
 .DS_Store
+*.log

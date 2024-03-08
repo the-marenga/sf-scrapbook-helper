@@ -28,7 +28,7 @@ pub fn view_scrapbook<'a>(
         AccountStatus::Idle(_, gs) => gs,
         AccountStatus::Busy(gs) => gs,
         AccountStatus::FatalError(err) => {
-            return text(format!("Erro: {err}")).size(20).into()
+            return text(format!("Error: {err}")).size(20).into()
         }
         AccountStatus::LoggingInAgain => {
             return text(format!("Logging in player again")).size(20).into()

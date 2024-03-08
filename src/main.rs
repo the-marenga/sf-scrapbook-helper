@@ -25,6 +25,15 @@ use iced::{
     Theme,
 };
 use iced_aw::number_input;
+use log::{debug, info};
+use log4rs::{
+    append::{
+        console::{ConsoleAppender, Target},
+        file::FileAppender,
+    },
+    config::{Appender, Logger, Root},
+    encode::pattern::PatternEncoder,
+};
 use login::{Auth, LoginState, LoginType, SSOStatus, SSOValidator};
 use nohash_hasher::IntMap;
 use player::{AccountInfo, AccountStatus, AutoAttackChecker, AutoPoll};
@@ -40,6 +49,10 @@ use crate::{
 pub const PER_PAGE: usize = 51;
 
 fn main() -> iced::Result {
+    let config = get_log_config();
+    log4rs::init_config(config).unwrap();
+    info!("Starting up");
+
     let mut settings = Settings::default();
     settings.window.min_size = Some(iced::Size {
         width: 700.0,
@@ -57,7 +70,7 @@ fn main() -> iced::Result {
             iced::window::icon::from_rgba(img.into_bytes(), width, height).ok();
         settings.window.icon = icon;
     }
-
+    debug!("Setup window");
     Helper::run(settings)
 }
 
@@ -687,4 +700,40 @@ pub fn handle_new_char_info(
             v.insert(char);
         }
     }
+}
+
+fn get_log_config() -> log4rs::Config {
+    let pattern = PatternEncoder::new(
+        "{d(%Y-%m-%d %H:%M:%S)} | {({l}):5.5} | {M}:{L} | {m}{n}",
+    );
+    let stderr = ConsoleAppender::builder()
+        .target(Target::Stderr)
+        .encoder(Box::new(pattern.clone()))
+        .build();
+
+    let logfile = FileAppender::builder()
+        .encoder(Box::new(pattern.clone()))
+        .build("helper.log")
+        .unwrap();
+
+    let config = log4rs::Config::builder()
+        .appender(Appender::builder().build("logfile", Box::new(logfile)))
+        .appender(Appender::builder().build("stderr", Box::new(stderr)))
+        .logger(
+            Logger::builder()
+                .appender("logfile")
+                .build("sf_scrapbook_helper", log::LevelFilter::Debug),
+        )
+        .logger(
+            Logger::builder()
+                .appender("logfile")
+                .build("sf_api", log::LevelFilter::Warn),
+        )
+        .build(
+            Root::builder()
+                .appender("stderr")
+                .build(log::LevelFilter::Error),
+        )
+        .unwrap();
+    config
 }
