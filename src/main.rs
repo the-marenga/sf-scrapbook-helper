@@ -27,7 +27,7 @@ use iced::{
 use iced_aw::number_input;
 use login::{Auth, LoginState, LoginType, SSOStatus, SSOValidator};
 use nohash_hasher::IntMap;
-use player::{AccountInfo, AccountStatus, AutoAttackChecker};
+use player::{AccountInfo, AccountStatus, AutoAttackChecker, AutoPoll};
 use serde::{Deserialize, Serialize};
 use server::{CrawlingStatus, ServerIdent, ServerInfo, Servers};
 use sf_api::{gamestate::unlockables::EquipmentIdent, sso::SSOProvider};
@@ -203,6 +203,16 @@ impl Application for Helper {
 
         for (server_id, server) in &self.servers.0 {
             for acc in server.accounts.values() {
+                let subscription = subscription::unfold(
+                    (acc.ident, 777),
+                    AutoPoll {
+                        player_status: acc.status.clone(),
+                        ident: acc.ident,
+                    },
+                    move |a: AutoPoll| async move { (a.check().await, a) },
+                );
+                subs.push(subscription);
+
                 if !acc.auto_battle {
                     continue;
                 }
@@ -212,9 +222,7 @@ impl Application for Helper {
                         player_status: acc.status.clone(),
                         ident: acc.ident,
                     },
-                    move |mut a: AutoAttackChecker| async move {
-                        (a.check().await, a)
-                    },
+                    move |a: AutoAttackChecker| async move { (a.check().await, a) },
                 );
                 subs.push(subscription);
             }

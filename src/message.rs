@@ -289,7 +289,7 @@ impl Helper {
                         loop {
                             println!("Logging in again");
                             let Ok(resp) = session_lock.login().await else {
-                                sleep(Duration::from_secs(fastrand::u64(
+                                sleep(Duration::from_millis(fastrand::u64(
                                     1000..3000,
                                 )))
                                 .await;
@@ -806,6 +806,7 @@ impl Helper {
                 *crawling_session = Some(state);
             }
             Message::CrawlerRevived { server_id } => {
+                println!("Crawler revived");
                 let Some(server) = self.servers.get_mut(&server_id) else {
                     return Command::none();
                 };

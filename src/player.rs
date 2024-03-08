@@ -9,6 +9,7 @@ use sf_api::{
     gamestate::{unlockables::ScrapBook, GameState},
     session::CharacterSession,
 };
+use tokio::time::sleep;
 
 use crate::{login::Auth, message::Message, AccountIdent, AttackTarget};
 
@@ -86,7 +87,7 @@ pub struct AutoAttackChecker {
 }
 
 impl AutoAttackChecker {
-    pub async fn check(&mut self) -> Message {
+    pub async fn check(&self) -> Message {
         let next_fight: Option<DateTime<Local>> = {
             match &*self.player_status.lock().unwrap() {
                 AccountStatus::Idle(_, session) => {
@@ -105,5 +106,53 @@ impl AutoAttackChecker {
             .await;
 
         Message::AutoFightPossible { ident: self.ident }
+    }
+}
+
+pub struct AutoPoll {
+    pub player_status: Arc<Mutex<AccountStatus>>,
+    pub ident: AccountIdent,
+}
+
+impl AutoPoll {
+    pub async fn check(&self) -> Message {
+        loop {
+            sleep(Duration::from_millis(fastrand::u64(5000..=10000))).await;
+            let mut session = {
+                let mut lock = self.player_status.lock().unwrap();
+                let res = lock.take_session();
+                match res {
+                    Some(res) => res,
+                    None => continue,
+                }
+            };
+
+            println!("Poll");
+
+            let Ok(resp) = session
+                .send_command(&sf_api::command::Command::UpdatePlayer)
+                .await
+            else {
+                return Message::PlayerCommandFailed {
+                    ident: self.ident,
+                    session,
+                };
+            };
+            let mut lock = self.player_status.lock().unwrap();
+            let gs = match &mut *lock {
+                AccountStatus::Busy(gs) => gs,
+                _ => {
+                    lock.put_session(session);
+                    continue;
+                }
+            };
+            if gs.update(resp).is_err() {
+                return Message::PlayerCommandFailed {
+                    ident: self.ident,
+                    session,
+                };
+            }
+            lock.put_session(session);
+        }
     }
 }
