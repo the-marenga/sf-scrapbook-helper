@@ -25,7 +25,7 @@ use iced::{
     Theme,
 };
 use iced_aw::number_input;
-use log::{debug, info};
+use log::{debug, info, trace};
 use log4rs::{
     append::{
         console::{ConsoleAppender, Target},
@@ -257,7 +257,6 @@ impl Application for Helper {
                             que: que.clone(),
                             state: session.clone(),
                             server_id: *server_id,
-                            dead: false,
                         },
                         move |mut a: Crawler| async move { (a.crawl().await, a) },
                     );
@@ -311,6 +310,7 @@ impl Helper {
         ident: AccountIdent,
         keep_recent: bool,
     ) -> Command<Message> {
+        trace!("Updating best for {ident:?} - keep recent: {keep_recent}");
         let Some(server) = self.servers.get_mut(&ident.server_id) else {
             return Command::none();
         };

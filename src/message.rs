@@ -2,6 +2,7 @@ use std::{sync::Arc, time::Duration};
 
 use chrono::Local;
 use iced::Command;
+use log::{error, trace, warn};
 use sf_api::{
     gamestate::GameState,
     session::{CharacterSession, PWHash, Response},
@@ -123,7 +124,6 @@ pub enum Message {
     ShowPlayer {
         ident: AccountIdent,
     },
-    CrawlerDead,
     CrawlerIdle,
     CrawlerNoPlayerResult,
     CrawlerUnable {
@@ -160,6 +160,8 @@ impl Helper {
                 // Gets handled in crawling
             }
             Message::CrawlerDied { server, error } => {
+                log::error!("Crawler died on {server:?} - {error}");
+
                 let Some(server) = self.servers.get_mut(&server) else {
                     return Command::none();
                 };
@@ -173,7 +175,7 @@ impl Helper {
                 let Some(server) = self.servers.get_mut(&server) else {
                     return Command::none();
                 };
-                println!("Crawled: {}", character.name);
+                trace!("{} crawled {}", server.ident.ident, character.name);
 
                 let CrawlingStatus::Crawling {
                     player_info,
@@ -226,10 +228,10 @@ impl Helper {
                     }
                 }
             }
-            Message::CrawlerDead => {}
             Message::CrawlerIdle => {}
             Message::CrawlerNoPlayerResult => {
                 // Maybe we want to count this as an error?
+                warn!("No player result");
             }
             Message::CrawlerUnable {
                 server: server_id,
@@ -238,6 +240,10 @@ impl Helper {
                 let Some(server) = self.servers.get_mut(&server_id) else {
                     return Command::none();
                 };
+                warn!(
+                    "Crawler was unable to do: {action:?} on {}",
+                    server.ident.ident
+                );
                 let CrawlingStatus::Crawling {
                     que_id,
                     que,
@@ -272,6 +278,7 @@ impl Helper {
                 if recent_failures.len() != 10 {
                     return Command::none();
                 }
+                debug!("Restarting crawler on {}", server.ident.ident);
 
                 // The last 10 command failed consecutively. This means there
                 // is some sort of issue with either the internet connection, or
@@ -282,13 +289,16 @@ impl Helper {
                     return Command::none();
                 };
 
+                let id = server.ident.ident.clone();
+
                 return Command::perform(
                     async move {
                         let mut session_lock = state.session.write().await;
 
                         loop {
-                            println!("Logging in again");
+                            debug!("Relog crawler on {}", id);
                             let Ok(resp) = session_lock.login().await else {
+                                error!("Could not login crawler on {}", id);
                                 sleep(Duration::from_millis(fastrand::u64(
                                     1000..3000,
                                 )))
@@ -297,6 +307,10 @@ impl Helper {
                             };
                             let mut gs = state.gs.lock().unwrap();
                             let Ok(new_gs) = GameState::new(resp) else {
+                                error!(
+                                    "Could not parse GS for crawler on {}",
+                                    id
+                                );
                                 // we can not hold mutex guards accross awaits
                                 drop(gs);
                                 sleep(Duration::from_millis(fastrand::u64(
@@ -342,6 +356,11 @@ impl Helper {
                 remember,
                 ident,
             } => {
+                info!(
+                    "Successfully logged in {ident:?} on {}",
+                    session.server_url()
+                );
+
                 let Some(server) = self.servers.0.get_mut(&ident.server_id)
                 else {
                     return Command::none();
@@ -439,6 +458,7 @@ impl Helper {
                 }
             }
             Message::LoggininFailure { error, ident } => {
+                error!("Error loggin in {ident:?}: {error}");
                 let Some((_, player)) = self.servers.get_ident(&ident) else {
                     return Command::none();
                 };

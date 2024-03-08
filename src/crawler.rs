@@ -14,7 +14,6 @@ use tokio::{sync::RwLock, time::sleep};
 use crate::*;
 
 pub struct Crawler {
-    pub dead: bool,
     pub que: Arc<Mutex<WorkerQue>>,
     pub state: Arc<CrawlerState>,
     pub server_id: ServerID,
@@ -22,11 +21,6 @@ pub struct Crawler {
 
 impl Crawler {
     pub async fn crawl(&mut self) -> Message {
-        if self.dead {
-            sleep(Duration::from_secs(60)).await;
-            return Message::CrawlerDead;
-        }
-
         let action = {
             // Thi: CrawlActions is in a seperate scope to immediately drop the
             // guard
@@ -160,7 +154,9 @@ impl CrawlerState {
         let password = name.chars().rev().collect::<String>();
         let mut session =
             CharacterSession::new(&name, &password, server.clone());
+        debug!("Logging in {name} on {}", session.server_url());
         if let Ok(resp) = session.login().await {
+            debug!("Successfully logged in {name} on {}", session.server_url());
             let gs = GameState::new(resp)?;
             return Ok(Self {
                 session: RwLock::new(session),
@@ -196,6 +192,10 @@ impl CrawlerState {
         let gender = rng.choice([Gender::Female, Gender::Male]).unwrap();
         let race = rng.choice(all_races).unwrap();
         let class = rng.choice(all_classes).unwrap();
+        debug!(
+            "Registering new crawler account {name} on {}",
+            session.server_url()
+        );
 
         let (session, resp) = CharacterSession::register(
             &name,
@@ -206,8 +206,9 @@ impl CrawlerState {
             class,
         )
         .await?;
-
         let gs = GameState::new(resp)?;
+
+        debug!("Registered {name} successfull {}", session.server_url());
 
         Ok(Self {
             session: RwLock::new(session),

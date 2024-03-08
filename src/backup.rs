@@ -5,6 +5,7 @@ use std::{
 
 use async_compression::tokio::write::ZlibEncoder;
 use chrono::{DateTime, Local, Utc};
+use log::{debug, warn};
 use nohash_hasher::IntMap;
 use serde::{Deserialize, Serialize};
 use sf_api::gamestate::unlockables::EquipmentIdent;
@@ -22,6 +23,12 @@ pub async fn restore_backup(
     backup: Option<Box<ZHofBackup>>,
     total_pages: usize,
 ) -> RestoreData {
+    if backup.is_none() {
+        debug!("Reset crawling progress");
+    } else {
+        debug!("Restoring local backup");
+    }
+
     let new_info = match backup {
         Some(backup) => backup,
         None => Box::new(ZHofBackup {
@@ -114,7 +121,7 @@ pub async fn get_newest_backup(
 ) -> Option<Box<ZHofBackup>> {
     let mut backup = ZHofBackup::read(&server_ident).await;
     if let Err(e) = &backup {
-        println!("{e}")
+        warn!("{server_ident} could not read in local backup: {e}")
     };
     if !fetch_online {
         return backup.ok().map(Box::new);
@@ -133,8 +140,10 @@ pub async fn get_newest_backup(
         (Some(_), None) => true,
         (None, _) => false,
     };
+    debug!("{server_ident} fetch online backup: {fetch_online}");
     // If the online backup is newer, we fetch it and restore it
     if fetch_online && fetch_online_hof(&server_ident).await.is_ok() {
+        debug!("{server_ident} fetched online HoF");
         backup = ZHofBackup::read(&server_ident).await;
     }
     backup.ok().map(Box::new)

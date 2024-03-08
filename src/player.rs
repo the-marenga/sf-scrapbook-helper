@@ -4,7 +4,7 @@ use std::{
 };
 
 use chrono::{DateTime, Local};
-use log::{debug, info};
+use log::debug;
 use nohash_hasher::IntMap;
 use sf_api::{
     gamestate::{unlockables::ScrapBook, GameState},
