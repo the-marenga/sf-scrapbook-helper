@@ -80,8 +80,8 @@ impl CharacterConfig {
     Debug, Serialize, Deserialize, Default, Clone, Copy, PartialEq, Eq,
 )]
 pub enum AvailableTheme {
-    #[default]
     Light,
+    #[default]
     Dark,
     Dracula,
     Nord,
