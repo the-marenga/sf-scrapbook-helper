@@ -106,7 +106,7 @@ pub fn view_scrapbook<'a>(
     if !player.attack_log.is_empty() {
         let mut log = column!().padding(5).spacing(5);
 
-        for (time, target, won) in &player.attack_log {
+        for (time, target, won) in player.attack_log.iter().rev() {
             let time = text(format!("{}", time.time().format("%H:%M")));
             let target = text(&target.info.name);
             let row = button(row!(target, horizontal_space(), time)).style(
