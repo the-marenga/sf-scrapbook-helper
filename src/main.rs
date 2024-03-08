@@ -1,5 +1,4 @@
 #![windows_subsystem = "windows"]
-#![allow(dead_code)]
 mod backup;
 mod config;
 mod crawler;
@@ -20,11 +19,10 @@ use config::{CharacterConfig, Config};
 use crawler::{CrawlAction, Crawler, CrawlerState, CrawlingOrder, WorkerQue};
 use iced::{
     executor, subscription, theme,
-    widget::{button, container, horizontal_space, pick_list, row, text},
+    widget::{button, container, horizontal_space, row, text},
     Alignment, Application, Command, Element, Length, Settings, Subscription,
     Theme,
 };
-use iced_aw::number_input;
 use log::{debug, info, trace};
 use log4rs::{
     append::{
@@ -474,99 +472,6 @@ impl ServerInfo {
         } else {
             Command::none()
         }
-    }
-
-    pub fn view(&self, max_threads: usize) -> Element<Message> {
-        let status_name = match &self.crawling {
-            CrawlingStatus::Waiting => "Waiting".to_string(),
-            CrawlingStatus::Restoring => "Loading...".to_string(),
-            CrawlingStatus::Crawling { threads, .. } => {
-                if *threads == 0 { "Idle" } else { "Crawling" }.to_string()
-            }
-            CrawlingStatus::CrawlingFailed(err) => format!("Failed: {err}"),
-        };
-
-        let mut is_crawling = false;
-
-        let crawling_info: Element<Message> = match &self.crawling {
-            CrawlingStatus::Waiting => text("").into(),
-            CrawlingStatus::Restoring => text("").into(),
-            CrawlingStatus::Crawling {
-                player_info,
-                threads,
-                que,
-                ..
-            } => {
-                is_crawling = true;
-                let (order, remaining) = {
-                    let lock = que.lock().unwrap();
-                    (
-                        lock.order,
-                        lock.todo_pages.len() * PER_PAGE
-                            + lock.todo_accounts.len()
-                            + lock.in_flight_pages.len() * PER_PAGE
-                            + lock.in_flight_accounts.len()
-                            + lock.invalid_pages.len() * PER_PAGE
-                            + lock.invalid_accounts.len(),
-                    )
-                };
-
-                let fetch_count = text(format!(
-                    "Fetched {}/{}",
-                    player_info.len(),
-                    player_info.len() + remaining
-                ));
-
-                let id = self.ident.id;
-
-                let active_crawlers =
-                    number_input(*threads, max_threads, move |nv| {
-                        Message::CrawlerSetThreads {
-                            server: id,
-                            new_count: nv,
-                        }
-                    })
-                    .width(Length::Fixed(60.0));
-
-                let order = pick_list(
-                    [
-                        CrawlingOrder::Random,
-                        CrawlingOrder::TopDown,
-                        CrawlingOrder::BottomUp,
-                    ],
-                    Some(order),
-                    |sel| Message::OrderChange {
-                        server: self.ident.id,
-                        new: sel,
-                    },
-                );
-
-                let clear_button = button("Clear HoF")
-                    .on_press(Message::ClearHof(self.ident.id));
-
-                row!(fetch_count, active_crawlers, order, clear_button)
-                    .spacing(10)
-                    .align_items(Alignment::Center)
-                    .into()
-            }
-            CrawlingStatus::CrawlingFailed(err) => {
-                text(format!("Crawler failed: {err}")).into()
-            }
-        };
-        let mut server_name =
-            text(format!("{} ({status_name})", &self.ident.url));
-
-        let mut server_row = row!().width(Length::Fill);
-
-        if !is_crawling {
-            server_name = server_name.size(20);
-            server_row = server_row.push(horizontal_space());
-        }
-        server_row = server_row.push(server_name);
-        server_row = server_row.push(horizontal_space());
-        server_row = server_row.push(crawling_info);
-
-        server_row.align_items(Alignment::Center).into()
     }
 }
 

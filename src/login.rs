@@ -62,7 +62,6 @@ pub enum SSOIdent {
 #[derive(Debug)]
 pub enum SSOLoginStatus {
     Loading,
-    Failed,
     Success,
 }
 
@@ -301,7 +300,6 @@ impl LoginState {
                             horizontal_space(),
                             text(match active.status {
                                 SSOLoginStatus::Loading => "Loading..",
-                                SSOLoginStatus::Failed => "Failed",
                                 SSOLoginStatus::Success => "",
                             })
                         )
@@ -310,13 +308,10 @@ impl LoginState {
                     .width(Length::Fill)
                     .style(match active.status {
                         SSOLoginStatus::Loading => theme::Button::Secondary,
-                        SSOLoginStatus::Failed => theme::Button::Destructive,
                         SSOLoginStatus::Success => theme::Button::Positive,
                     })
                     .on_press_maybe(match active.status {
                         SSOLoginStatus::Loading => None,
-                        // TODO: Remove
-                        SSOLoginStatus::Failed => None,
                         SSOLoginStatus::Success => {
                             Some(Message::LoginViewChanged(LoginType::SSOChars))
                         }
@@ -551,7 +546,10 @@ impl Helper {
                     chars,
                     remember: remember_sf,
                 },
-                Err(_) => todo!(),
+                Err(error) => Message::SSOLoginFailure {
+                    name,
+                    error: error.to_string(),
+                },
             },
         )
     }

@@ -18,6 +18,10 @@ use crate::{crawler::CrawlerState, *};
 
 #[derive(Debug, Clone)]
 pub enum Message {
+    SSOLoginFailure {
+        name: String,
+        error: String,
+    },
     PlayerRelogSuccess {
         ident: AccountIdent,
         gs: Box<GameState>,
@@ -46,9 +50,6 @@ pub enum Message {
     SSOAuthError(String),
     SetMaxThreads(usize),
     SetAutoFetch(bool),
-    ValidateBest {
-        ident: AccountIdent,
-    },
     ViewSubPage {
         player: AccountIdent,
         page: AccountPage,
@@ -931,9 +932,6 @@ impl Helper {
                     page,
                 }
             }
-            Message::ValidateBest { ident } => {
-                return self.update_best(ident, false);
-            }
             Message::SetAutoFetch(b) => {
                 self.config.auto_fetch_newest = b;
                 _ = self.config.write();
@@ -1167,6 +1165,14 @@ impl Helper {
                 let mut lock = player.status.lock().unwrap();
                 *lock = AccountStatus::Idle(session, gs);
                 drop(lock);
+            }
+            Message::SSOLoginFailure { name, error } => {
+                self
+                    .login_state
+                    .active_sso
+                    .retain(|a| !matches!(&a.ident, SSOIdent::SF(s) if s.as_str() == name.as_str()));
+                self.login_state.login_typ = LoginType::SFAccount;
+                self.login_state.error = Some(error)
             }
         }
         Command::none()
