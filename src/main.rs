@@ -34,7 +34,7 @@ use log4rs::{
 };
 use login::{Auth, LoginState, LoginType, SSOStatus, SSOValidator};
 use nohash_hasher::IntMap;
-use player::{AccountInfo, AccountStatus, AutoAttackChecker, AutoPoll};
+use player::{AccountInfo, AccountStatus, AutoAttackChecker, AutoPoll, ScrapbookInfo};
 use serde::{Deserialize, Serialize};
 use server::{CrawlingStatus, ServerIdent, ServerInfo, Servers};
 use sf_api::{gamestate::unlockables::EquipmentIdent, sso::SSOProvider};
@@ -224,7 +224,11 @@ impl Application for Helper {
                 );
                 subs.push(subscription);
 
-                if !acc.auto_battle {
+                let Some(si) = &acc.scrapbook_info else {
+                   continue
+                };
+
+                if !si.auto_battle {
                     continue;
                 }
                 let subscription = subscription::unfold(
@@ -334,16 +338,20 @@ impl Helper {
             return Command::none();
         }
 
+        let Some(si) = &mut account.scrapbook_info else {
+            return Command::none()
+        };
+
         let per_player_counts = calc_per_player_count(
-            player_info, equipment, &account.scrapbook.items, account,
+            player_info, equipment, &si.scrapbook.items, &si,
         );
         let best_players = find_best(&per_player_counts, player_info, 20);
 
-        account.best = best_players;
+        si.best = best_players;
         account.last_updated = Local::now();
 
         let mut lock = que.lock().unwrap();
-        for target in &account.best {
+        for target in &si.best {
             if target.is_old()
                 && !lock.todo_accounts.contains(&target.info.name)
                 && !lock.invalid_accounts.contains(&target.info.name)
@@ -373,7 +381,7 @@ pub fn calc_per_player_count(
         ahash::RandomState,
     >,
     scrapbook: &HashSet<EquipmentIdent>,
-    account: &AccountInfo,
+    si: &ScrapbookInfo,
 ) -> IntMap<u32, usize> {
     let mut per_player_counts = IntMap::default();
     per_player_counts.reserve(player_info.len());
@@ -391,10 +399,12 @@ pub fn calc_per_player_count(
         let Some(info) = player_info.get(a) else {
             return false;
         };
-        if info.level > account.max_level {
+
+        if info.level > si.max_level {
             return false;
         }
-        if let Some((_, lost)) = account.blacklist.get(&info.uid) {
+
+        if let Some((_, lost)) = si.blacklist.get(&info.uid) {
             if *lost >= 5 {
                 return false;
             }

@@ -22,6 +22,10 @@ pub fn view_scrapbook<'a>(
     player: &'a AccountInfo,
     max_threads: usize,
 ) -> Element<'a, Message> {
+    let Some(si) = &player.scrapbook_info else {
+         return text("Player does not have a scrapbook").size(20).into()
+    };
+
     let lock = player.status.lock().unwrap();
     let gs = match &*lock {
         AccountStatus::LoggingIn => return text("Loggin in").size(20).into(),
@@ -62,7 +66,7 @@ pub fn view_scrapbook<'a>(
     ));
 
     let aid = player.ident;
-    let max_lvl = number_input(player.max_level, 9999, move |nv| {
+    let max_lvl = number_input(si.max_level, 9999, move |nv| {
         Message::PlayerSetMaxLvl {
             ident: aid,
             max: nv,
@@ -89,7 +93,7 @@ pub fn view_scrapbook<'a>(
     };
 
     left_col = left_col.push(
-        checkbox("Auto Battle", player.auto_battle)
+        checkbox("Auto Battle", si.auto_battle)
             .on_toggle(|a| Message::AutoBattle {
                 ident: player.ident,
                 state: a,
@@ -103,10 +107,10 @@ pub fn view_scrapbook<'a>(
         },
     ));
 
-    if !player.attack_log.is_empty() {
+    if !si.attack_log.is_empty() {
         let mut log = column!().padding(5).spacing(5);
 
-        for (time, target, won) in player.attack_log.iter().rev() {
+        for (time, target, won) in si.attack_log.iter().rev() {
             let time = text(format!("{}", time.time().format("%H:%M")));
             let target = text(&target.info.name);
             let row = button(row!(target, horizontal_space(), time)).style(
@@ -212,11 +216,12 @@ pub fn view_scrapbook<'a>(
         text("Fetched")
             .width(Length::FillPortion(1))
             .horizontal_alignment(Horizontal::Center),
-    ));
+    ))
+    .padding(15);
     let name_bar = scrollable(name_bar);
 
     let mut target_list = column!().spacing(10);
-    for v in &player.best {
+    for v in &si.best {
         target_list = target_list.push(row!(
             column!(button("Attack").on_press(Message::PlayerAttack {
                 ident: player.ident,
@@ -253,8 +258,7 @@ pub fn view_scrapbook<'a>(
     }
     let target_list = scrollable(target_list);
     let right_col = column!(name_bar, target_list)
-        .width(Length::Fill)
-        .spacing(5);
+        .width(Length::Fill);
 
     row!(
         left_col.width(Length::FillPortion(1)),

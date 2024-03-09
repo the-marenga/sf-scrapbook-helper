@@ -14,7 +14,7 @@ use self::{
     backup::{get_newest_backup, restore_backup, RestoreData, ZHofBackup},
     login::{SSOIdent, SSOLogin, SSOLoginStatus},
 };
-use crate::{crawler::CrawlerState, *};
+use crate::{crawler::CrawlerState, player::ScrapbookInfo, *};
 
 #[derive(Debug, Clone)]
 pub enum Message {
@@ -371,15 +371,7 @@ impl Helper {
                     return Command::none();
                 };
 
-                player.max_level = gs.character.level;
-
-                let Some(scrapbook) = gs.unlocks.scrapbok.clone() else {
-                    *player.status.lock().unwrap() = AccountStatus::FatalError(
-                        "This character does not have a scrapbook yet"
-                            .to_string(),
-                    );
-                    return Command::none();
-                };
+                player.scrapbook_info = ScrapbookInfo::new(&gs);
 
                 if remember {
                     match &player.auth {
@@ -404,22 +396,6 @@ impl Helper {
                             ));
                             _ = self.config.write();
                         }
-                        Auth::SFHash(hash) => {
-                            self.config.accounts.retain(|a| match &a.creds {
-                                AccountCreds::SF { name, .. } => {
-                                    name != &player.name
-                                }
-                                _ => true,
-                            });
-                            self.config.accounts.push(CharacterConfig::new(
-                                AccountCreds::SF {
-                                    name: player.name.clone(),
-                                    pw_hash: hash.clone(),
-                                },
-                            ));
-
-                            _ = self.config.write();
-                        }
                         Auth::SSO => {}
                     }
                 }
@@ -427,7 +403,8 @@ impl Helper {
                 let total_players = gs.other_players.total_player;
                 let total_pages = (total_players as usize).div_ceil(PER_PAGE);
 
-                player.scrapbook = scrapbook;
+                player.scrapbook_info = ScrapbookInfo::new(&gs);
+
                 *player.status.lock().unwrap() =
                     AccountStatus::Idle(session, gs);
 
@@ -655,7 +632,11 @@ impl Helper {
                 };
                 drop(status);
 
-                let Some(target) = account.best.first().cloned() else {
+                let Some(si) = &account.scrapbook_info else {
+                    return Command::none();
+                };
+
+                let Some(target) = si.best.first().cloned() else {
                     let mut status = account.status.lock().unwrap();
                     status.put_session(session);
                     return refetch;
@@ -777,13 +758,17 @@ impl Helper {
                 let nt = against.info.name.clone();
                 let ut = against.info.uid;
 
+                let Some(si) = &mut account.scrapbook_info else {
+                    return Command::none();
+                };
+
                 if last.has_player_won {
                     for new in &against.info.equipment {
-                        account.scrapbook.items.insert(*new);
+                        si.scrapbook.items.insert(*new);
                     }
                 }
 
-                account.attack_log.push((
+                si.attack_log.push((
                     Local::now(),
                     against,
                     last.has_player_won,
@@ -792,7 +777,7 @@ impl Helper {
                 let mut res = Command::none();
 
                 if !last.has_player_won {
-                    account.blacklist.entry(ut).or_insert((nt, 0)).1 += 1;
+                    si.blacklist.entry(ut).or_insert((nt, 0)).1 += 1;
                 } else if let CrawlingStatus::Crawling { .. } = &server.crawling
                 {
                     let ident = account.ident;
@@ -811,7 +796,12 @@ impl Helper {
                 else {
                     return Command::none();
                 };
-                player.auto_battle = state;
+
+                let Some(si) = &mut player.scrapbook_info else {
+                    return Command::none();
+                };
+
+                si.auto_battle = state;
             }
             Message::CrawlerStartup { server, state } => {
                 let Some(server) = self.servers.get_mut(&server) else {
@@ -1045,7 +1035,10 @@ impl Helper {
                 else {
                     return Command::none();
                 };
-                account.max_level = max;
+                let Some(si) = &mut account.scrapbook_info else {
+                    return Command::none();
+                };
+                si.max_level = max;
                 return self.update_best(ident, false);
             }
             Message::SaveHoF(server_id) => {
@@ -1110,11 +1103,15 @@ impl Helper {
                     return Command::none();
                 };
 
-                let mut best = account.best.first().cloned();
-                let mut scrapbook = account.scrapbook.items.clone();
+                let Some(si) = &account.scrapbook_info else {
+                    return Command::none();
+                };
+
+                let mut best = si.best.first().cloned();
+                let mut scrapbook = si.scrapbook.items.clone();
 
                 let mut per_player_counts = calc_per_player_count(
-                    player_info, equipment, &scrapbook, account,
+                    player_info, equipment, &scrapbook, &si,
                 );
 
                 let mut target_list = Vec::new();

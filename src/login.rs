@@ -558,6 +558,5 @@ impl Helper {
 #[allow(clippy::upper_case_acronyms)]
 pub enum Auth {
     NormalHash(PWHash),
-    SFHash(PWHash),
     SSO,
 }

@@ -18,14 +18,31 @@ pub struct AccountInfo {
     pub name: String,
     pub ident: AccountIdent,
     pub auth: Auth,
+    pub last_updated: DateTime<Local>,
+    pub status: Arc<Mutex<AccountStatus>>,
+    pub scrapbook_info: Option<ScrapbookInfo>,
+}
+
+pub struct ScrapbookInfo {
     pub scrapbook: ScrapBook,
     pub best: Vec<AttackTarget>,
-    pub last_updated: DateTime<Local>,
     pub max_level: u16,
-    pub status: Arc<Mutex<AccountStatus>>,
     pub blacklist: IntMap<u32, (String, usize)>,
-    pub auto_battle: bool,
     pub attack_log: Vec<(DateTime<Local>, AttackTarget, bool)>,
+    pub auto_battle: bool,
+}
+
+impl ScrapbookInfo {
+    pub fn new(gs: &GameState) -> Option<Self> {
+        Some(Self {
+            scrapbook: gs.unlocks.scrapbok.as_ref()?.clone(),
+            best: Default::default(),
+            max_level: gs.character.level,
+            blacklist: Default::default(),
+            attack_log: Default::default(),
+            auto_battle: false,
+        })
+    }
 }
 
 impl AccountInfo {
@@ -37,18 +54,10 @@ impl AccountInfo {
         AccountInfo {
             name: name.to_string(),
             auth,
-            scrapbook: ScrapBook {
-                items: Default::default(),
-                monster: Default::default(),
-            },
-            best: vec![],
+            scrapbook_info: None,
             last_updated: Local::now(),
-            max_level: 0,
             status: Arc::new(Mutex::new(AccountStatus::LoggingIn)),
-            blacklist: Default::default(),
-            auto_battle: false,
             ident: account_ident,
-            attack_log: vec![],
         }
     }
 }
