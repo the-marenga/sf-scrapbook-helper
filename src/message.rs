@@ -13,8 +13,13 @@ use tokio::time::sleep;
 use self::{
     backup::{get_newest_backup, restore_backup, RestoreData, ZHofBackup},
     login::{SSOIdent, SSOLogin, SSOLoginStatus},
+    ui::underworld::LureTarget,
 };
-use crate::{crawler::CrawlerState, player::{ScrapbookInfo, UnderworldInfo}, *};
+use crate::{
+    crawler::CrawlerState,
+    player::{ScrapbookInfo, UnderworldInfo},
+    *,
+};
 
 #[derive(Debug, Clone)]
 pub enum Message {
@@ -39,6 +44,10 @@ pub enum Message {
     PlayerAttack {
         ident: AccountIdent,
         target: AttackTarget,
+    },
+    PlayerLure {
+        ident: AccountIdent,
+        target: LureTarget,
     },
     SSOOpen(String),
     SSOSuccess {
@@ -85,6 +94,12 @@ pub enum Message {
         ident: AccountIdent,
         session: Box<CharacterSession>,
         against: AttackTarget,
+        resp: Box<Response>,
+    },
+    PlayerLureResult {
+        ident: AccountIdent,
+        session: Box<CharacterSession>,
+        against: LureTarget,
         resp: Box<Response>,
     },
     AutoFightPossible {
@@ -1172,6 +1187,101 @@ impl Helper {
                     .retain(|a| !matches!(&a.ident, SSOIdent::SF(s) if s.as_str() == name.as_str()));
                 self.login_state.login_typ = LoginType::SFAccount;
                 self.login_state.error = Some(error)
+            }
+            Message::PlayerLure { ident, target } => {
+                let Some(server) = self.servers.get_mut(&ident.server_id)
+                else {
+                    return Command::none();
+                };
+                let Some(account) = server.accounts.get_mut(&ident.account)
+                else {
+                    return Command::none();
+                };
+                let CrawlingStatus::Crawling { .. } = &server.crawling else {
+                    return Command::none();
+                };
+
+                let mut status = account.status.lock().unwrap();
+                let Some(mut session) = status.take_session() else {
+                    return Command::none();
+                };
+                drop(status);
+                let ident = account.ident;
+                let refetch_cmd = self.update_best(ident, true);
+                let tid = target.uid;
+                let attack = Command::perform(
+                    async move {
+                        let cmd = sf_api::command::Command::UnderworldAttack {
+                            player_id: tid,
+                        };
+                        let resp = session.send_command(&cmd).await;
+                        (resp, session)
+                    },
+                    move |r| match r.0 {
+                        Ok(resp) => Message::PlayerLureResult {
+                            ident,
+                            session: r.1,
+                            against: target,
+                            resp: Box::new(resp),
+                        },
+                        Err(_) => Message::PlayerCommandFailed {
+                            ident,
+                            session: r.1,
+                        },
+                    },
+                );
+
+                return Command::batch([refetch_cmd, attack]);
+            }
+            Message::PlayerLureResult {
+                ident,
+                session,
+                against,
+                resp,
+            } => {
+                let Some(server) = self.servers.0.get_mut(&ident.server_id)
+                else {
+                    return Command::none();
+                };
+                let Some(account) = server.accounts.get_mut(&ident.account)
+                else {
+                    return Command::none();
+                };
+
+                _ = std::fs::write("resp.out", format!("{resp:?}"));
+
+                let v = account.status.clone();
+                let mut lock = v.lock().unwrap();
+
+                let AccountStatus::Busy(s) = &mut *lock else {
+                    return Command::none();
+                };
+
+                if let Err(e) = s.update(*resp) {
+                    // it would *probably* be ok to just ignore this in most
+                    // cases, but whatever
+                    *lock = AccountStatus::FatalError(e.to_string());
+                    return Command::none();
+                };
+
+                let Some(last) = &s.last_fight else {
+                    return Command::none();
+                };
+
+                let Some(si) = &mut account.underworld_info else {
+                    return Command::none();
+                };
+
+                si.attack_log.push((
+                    Local::now(),
+                    against.name,
+                    last.has_player_won,
+                ));
+
+                if let Some(underworld) = s.unlocks.underworld.as_ref() {
+                    si.underworld = underworld.clone();
+                }
+                lock.put_session(session);
             }
         }
         Command::none()

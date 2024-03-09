@@ -28,7 +28,7 @@ pub struct UnderworldInfo {
     pub underworld: Underworld,
     pub best: Vec<CharacterInfo>,
     pub max_level: u16,
-    pub attack_log: Vec<(DateTime<Local>, CharacterInfo, bool)>,
+    pub attack_log: Vec<(DateTime<Local>, String, bool)>,
 }
 
 impl UnderworldInfo {

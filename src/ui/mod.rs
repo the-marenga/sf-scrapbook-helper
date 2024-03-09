@@ -15,7 +15,7 @@ use crate::{
 };
 
 mod scrapbook;
-mod underworld;
+pub mod underworld;
 
 impl Helper {
     pub fn view_current_page(&self) -> Element<Message> {

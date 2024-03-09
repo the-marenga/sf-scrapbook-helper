@@ -1,12 +1,19 @@
 use iced::{
     alignment::Horizontal,
-    widget::{button, column, horizontal_space, pick_list, progress_bar, row, scrollable, text, vertical_space},
+    widget::{
+        button, column, horizontal_space, pick_list, progress_bar, row,
+        scrollable, text, vertical_space,
+    },
     Alignment, Element, Length,
 };
 use iced_aw::number_input;
+use sf_api::gamestate::underworld::UnderWorldResourceType;
 
 use crate::{
-    crawler::CrawlingOrder, message::Message, player::{AccountInfo, AccountStatus}, server::{CrawlingStatus, ServerInfo}
+    crawler::CrawlingOrder,
+    message::Message,
+    player::{AccountInfo, AccountStatus},
+    server::{CrawlingStatus, ServerInfo},
 };
 
 pub fn view_underworld<'a>(
@@ -39,6 +46,18 @@ pub fn view_underworld<'a>(
         text(format!("{}/5", info.underworld.battles_today))
             .width(Length::FillPortion(1))
             .horizontal_alignment(Horizontal::Right),
+    ));
+
+    let souls =
+        &info.underworld.resources[UnderWorldResourceType::Souls as usize];
+    left_col = left_col.push(row!(
+        text("Souls Filled:").width(Length::FillPortion(1)),
+        text(format!(
+            "{:.0}%",
+            (souls.current as f32 / (souls.limit.max(1)) as f32) * 100.0
+        ))
+        .width(Length::FillPortion(1))
+        .horizontal_alignment(Horizontal::Right),
     ));
 
     left_col = left_col.push(vertical_space());
@@ -113,51 +132,54 @@ pub fn view_underworld<'a>(
     }
 
     let mut name_bar = column!();
-    name_bar = name_bar
-        .push(row!(
-            text("")
-                .width(Length::FillPortion(1))
-                .horizontal_alignment(Horizontal::Center),
-            text("Level")
-                .width(Length::FillPortion(1))
-                .horizontal_alignment(Horizontal::Center),
-            text("Items")
-                .width(Length::FillPortion(1))
-                .horizontal_alignment(Horizontal::Center),
-            text("Name")
-                .width(Length::FillPortion(3))
-                .horizontal_alignment(Horizontal::Left),
-            text("Fetched")
-                .width(Length::FillPortion(1))
-                .horizontal_alignment(Horizontal::Center),
-        ));
+    name_bar = name_bar.push(row!(
+        text("")
+            .width(Length::FillPortion(1))
+            .horizontal_alignment(Horizontal::Center),
+        text("Level")
+            .width(Length::FillPortion(1))
+            .horizontal_alignment(Horizontal::Center),
+        text("Items")
+            .width(Length::FillPortion(1))
+            .horizontal_alignment(Horizontal::Center),
+        text("Name")
+            .width(Length::FillPortion(3))
+            .horizontal_alignment(Horizontal::Left),
+        text("Fetched")
+            .width(Length::FillPortion(1))
+            .horizontal_alignment(Horizontal::Center),
+    ));
     let name_bar = scrollable(name_bar);
 
     let mut target_list = column!().spacing(10);
     for v in &info.best {
-        target_list = target_list
-            .push(row!(
-                column!(button("Lure"))
-                    .align_items(Alignment::Center)
-                    .width(Length::FillPortion(1)),
-                text(v.level)
-                    .width(Length::FillPortion(1))
-                    .horizontal_alignment(Horizontal::Center),
-                text(v.equipment.len())
-                    .width(Length::FillPortion(1))
-                    .horizontal_alignment(Horizontal::Center),
-                text(&v.name)
-                    .width(Length::FillPortion(3))
-                    .horizontal_alignment(Horizontal::Left),
-                text(
-                    &v
-                        .fetch_date
-                        .map(|a| a.format("%d-%m-%y").to_string())
-                        .unwrap_or_else(|| { "???".to_string() })
-                )
+        target_list = target_list.push(row!(
+            column!(button("Lure").on_press(Message::PlayerLure {
+                ident: player.ident,
+                target: LureTarget {
+                    uid: v.uid,
+                    name: v.name.clone()
+                }
+            }))
+            .align_items(Alignment::Center)
+            .width(Length::FillPortion(1)),
+            text(v.level)
                 .width(Length::FillPortion(1))
                 .horizontal_alignment(Horizontal::Center),
-            ));
+            text(v.equipment.len())
+                .width(Length::FillPortion(1))
+                .horizontal_alignment(Horizontal::Center),
+            text(&v.name)
+                .width(Length::FillPortion(3))
+                .horizontal_alignment(Horizontal::Left),
+            text(
+                &v.fetch_date
+                    .map(|a| a.format("%d-%m-%y").to_string())
+                    .unwrap_or_else(|| { "???".to_string() })
+            )
+            .width(Length::FillPortion(1))
+            .horizontal_alignment(Horizontal::Center),
+        ));
     }
     let target_list = scrollable(target_list);
     let right_col = column!(name_bar, target_list).width(Length::Fill);
@@ -170,4 +192,10 @@ pub fn view_underworld<'a>(
     .height(Length::Fill)
     .align_items(Alignment::Start)
     .into()
+}
+
+#[derive(Debug, Clone)]
+pub struct LureTarget {
+    pub uid: u32,
+    pub name: String,
 }
