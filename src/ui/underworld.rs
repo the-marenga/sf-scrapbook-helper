@@ -1,5 +1,6 @@
 use iced::{
     alignment::Horizontal,
+    theme,
     widget::{
         button, column, horizontal_space, pick_list, progress_bar, row,
         scrollable, text, vertical_space,
@@ -73,6 +74,23 @@ pub fn view_underworld<'a>(
             .width(Length::FillPortion(1))
             .horizontal_alignment(Horizontal::Right),
     ));
+    if !info.attack_log.is_empty() {
+        let mut log = column!().padding(5).spacing(5);
+
+        for (time, target, won) in info.attack_log.iter().rev() {
+            let time = text(format!("{}", time.time().format("%H:%M")));
+            let target = text(target);
+            let row = button(row!(target, horizontal_space(), time)).style(
+                match won {
+                    true => theme::Button::Positive,
+                    false => theme::Button::Destructive,
+                },
+            );
+            log = log.push(row.padding(5));
+        }
+
+        left_col = left_col.push(scrollable(log).height(Length::Fixed(200.0)));
+    }
 
     left_col = left_col.push(vertical_space());
     let sid = server.ident.id;

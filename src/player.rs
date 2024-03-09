@@ -36,11 +36,14 @@ pub struct UnderworldInfo {
 
 impl UnderworldInfo {
     pub fn new(gs: &GameState) -> Option<Self> {
-        // TODO: Pre set min & max level
+        let underworld = gs.unlocks.underworld.as_ref()?.clone();
+        let avg_lvl =
+            underworld.units.iter().map(|a| a.level as u64).sum::<u64>() as f32
+                / 3.0;
         Some(Self {
-            underworld: gs.unlocks.underworld.as_ref()?.clone(),
+            underworld,
             best: Default::default(),
-            max_level: 999,
+            max_level: avg_lvl as u16 + 20,
             attack_log: Vec::new(),
         })
     }
