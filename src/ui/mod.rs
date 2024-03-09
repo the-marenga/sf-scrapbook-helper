@@ -27,8 +27,33 @@ impl Helper {
             View::Overview => self.view_overview(),
             View::Settings => self.view_settings(),
         };
+        let main_part = container(view).width(Length::Fill).center_x();
+        let mut res = column!();
 
-        container(view).width(Length::Fill).center_x().into()
+        if self.should_update {
+            let dl_button =  button("Download").on_press(
+                Message::OpenLink("https://github.com/the-marenga/sf-scrapbook-helper/releases/latest".to_string())
+            );
+
+            let ignore_button = button("Ignore")
+                .on_press(Message::UpdateResult(false))
+                .style(theme::Button::Destructive);
+
+            let update_msg = row!(
+                horizontal_space(),
+                text("A new Version is available!").size(20),
+                dl_button,
+                horizontal_space(),
+                ignore_button,
+            )
+            .align_items(Alignment::Center)
+            .spacing(10)
+            .width(Length::Fill)
+            .padding(15);
+
+            res = res.push(update_msg);
+        }
+        res.push(main_part).into()
     }
 
     fn view_account(

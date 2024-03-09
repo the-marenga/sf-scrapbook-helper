@@ -71,6 +71,7 @@ fn main() -> iced::Result {
         settings.window.icon = icon;
     }
     debug!("Setup window");
+
     Helper::run(settings)
 }
 
@@ -79,6 +80,7 @@ struct Helper {
     current_view: View,
     login_state: LoginState,
     config: Config,
+    should_update: bool,
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
@@ -191,9 +193,15 @@ impl Application for Helper {
             },
             config,
             current_view: View::Login,
+            should_update: false,
         };
-        // TODO: Fetch update?
-        (helper, Command::none())
+
+        let fetch_update =
+            Command::perform(async { check_update().await }, |res| {
+                Message::UpdateResult(res.unwrap_or_default())
+            });
+
+        (helper, fetch_update)
     }
 
     fn theme(&self) -> Theme {
@@ -698,4 +706,30 @@ fn get_log_config() -> log4rs::Config {
                 .build(log::LevelFilter::Error),
         )
         .unwrap()
+}
+
+async fn check_update() -> Result<bool, Box<dyn std::error::Error>> {
+    let client = reqwest::ClientBuilder::new()
+        .user_agent("sf-scrapbook-helper")
+        .build()?;
+    let url =
+        "https://api.github.com/repos/the-marenga/sf-scrapbook-helper/tags";
+    let resp = client.get(url).send().await?;
+
+    let text = resp.text().await?;
+
+    #[derive(Debug, Deserialize)]
+    struct GitTag {
+        name: String,
+    }
+
+    let tags: Vec<GitTag> = serde_json::from_str(&text)?;
+
+    let mut should_update = false;
+    if let Some(newest) = tags.first() {
+        let git_version = semver::Version::parse(newest.name.trim_start_matches('v'))?;
+        let own_version = semver::Version::parse(env!("CARGO_PKG_VERSION"))?;
+        should_update = own_version < git_version;
+    }
+    Ok(should_update)
 }

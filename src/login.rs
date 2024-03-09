@@ -187,7 +187,7 @@ impl LoginState {
                 let info: Element<Message> =
                     match &*self.steam_sso.lock().unwrap() {
                         SSOStatus::Waiting { url } => button(text("Login"))
-                            .on_press(Message::SSOOpen(url.to_string()))
+                            .on_press(Message::OpenLink(url.to_string()))
                             .into(),
                         _ => text("Waiting...").into(),
                     };
@@ -202,7 +202,7 @@ impl LoginState {
                 let info: Element<Message> =
                     match &*self.google_sso.lock().unwrap() {
                         SSOStatus::Waiting { url } => button(text("Login"))
-                            .on_press(Message::SSOOpen(url.to_string()))
+                            .on_press(Message::OpenLink(url.to_string()))
                             .into(),
                         _ => text("Waiting...").into(),
                     };

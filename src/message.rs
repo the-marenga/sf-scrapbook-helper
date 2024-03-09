@@ -23,6 +23,7 @@ use crate::{
 
 #[derive(Debug, Clone)]
 pub enum Message {
+    UpdateResult(bool),
     PlayerSetMaxUndergroundLvl {
         ident: AccountIdent,
         lvl: u16,
@@ -59,7 +60,7 @@ pub enum Message {
         ident: AccountIdent,
         target: LureTarget,
     },
-    SSOOpen(String),
+    OpenLink(String),
     SSOSuccess {
         auth_name: String,
         chars: Vec<CharacterSession>,
@@ -994,7 +995,7 @@ impl Helper {
             Message::SSOAuthError(_) => {
                 // TODO: Display this I guess
             }
-            Message::SSOOpen(url) => {
+            Message::OpenLink(url) => {
                 _ = open::that(url);
             }
             Message::PlayerAttack { ident, target } => {
@@ -1345,6 +1346,9 @@ impl Helper {
                 };
                 si.max_level = lvl;
                 return self.update_best(ident, false);
+            }
+            Message::UpdateResult(should_update) => {
+                self.should_update = should_update;
             }
         }
         Command::none()
