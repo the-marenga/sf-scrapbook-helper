@@ -24,7 +24,7 @@ pub fn view_scrapbook<'a>(
 ) -> Element<'a, Message> {
     let lock = player.status.lock().unwrap();
     let gs = match &*lock {
-        AccountStatus::LoggingIn => return text("Loggin in").size(20).into(),
+        AccountStatus::LoggingIn => return text("Logging in").size(20).into(),
         AccountStatus::Idle(_, gs) => gs,
         AccountStatus::Busy(gs) => gs,
         AccountStatus::FatalError(err) => {
@@ -44,6 +44,13 @@ pub fn view_scrapbook<'a>(
     left_col = left_col.push(row!(
         text("Mushrooms:").width(Length::FillPortion(1)),
         text(gs.character.mushrooms)
+            .width(Length::FillPortion(1))
+            .horizontal_alignment(Horizontal::Right)
+    ));
+
+    left_col = left_col.push(row!(
+        text("Items Found:").width(Length::FillPortion(1)),
+        text(si.scrapbook.items.len())
             .width(Length::FillPortion(1))
             .horizontal_alignment(Horizontal::Right)
     ));

@@ -148,9 +148,22 @@ impl LoginState {
                 let options_row = row!(remember_me)
                     .width(Length::Fill)
                     .align_items(Alignment::Start);
+                let error_msg = row!(
+                    horizontal_space(),
+                    text(
+                        self.error
+                            .as_ref()
+                            .map(|a| format!("Error: {a}"))
+                            .unwrap_or_default()
+                    ),
+                    horizontal_space()
+                )
+                .width(Length::Fill)
+                .align_items(Alignment::Center);
 
                 column![
-                    title, name_input, pw_input, options_row, sso_login_button
+                    title, name_input, pw_input, options_row, sso_login_button,
+                    error_msg
                 ]
             }
             LoginType::Regular => {

@@ -727,7 +727,8 @@ async fn check_update() -> Result<bool, Box<dyn std::error::Error>> {
 
     let mut should_update = false;
     if let Some(newest) = tags.first() {
-        let git_version = semver::Version::parse(newest.name.trim_start_matches('v'))?;
+        let git_version =
+            semver::Version::parse(newest.name.trim_start_matches('v'))?;
         let own_version = semver::Version::parse(env!("CARGO_PKG_VERSION"))?;
         should_update = own_version < git_version;
     }

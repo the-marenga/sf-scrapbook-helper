@@ -1177,7 +1177,7 @@ impl Helper {
                 return iced::clipboard::write(target_list.join("/"));
             }
             Message::PlayerRelogSuccess { ident, gs, session } => {
-                println!("Login success");
+                info!("Relogin success");
                 let Some(server) = self.servers.0.get_mut(&ident.server_id)
                 else {
                     return Command::none();
@@ -1319,11 +1319,6 @@ impl Helper {
                     }
                 };
 
-                if let Some(sbi) = &mut account.scrapbook_info {
-                    if let Some(sb) = &gs.unlocks.scrapbok {
-                        sbi.scrapbook = sb.clone();
-                    }
-                }
                 if let Some(sbi) = &mut account.underworld_info {
                     if let Some(sb) = &gs.unlocks.underworld {
                         sbi.underworld = sb.clone();
