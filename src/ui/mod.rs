@@ -61,6 +61,12 @@ impl Helper {
             text(titlecase::titlecase(&player.name).to_string()).size(20),
             selection(AccountPage::Scrapbook),
             selection(AccountPage::Underworld),
+            button(text("Logout"))
+                .on_press(Message::RemoveAccount {
+                    ident: player.ident,
+                })
+                .padding(4)
+                .style(theme::Button::Destructive)
         )
         .spacing(15)
         .align_items(Alignment::Center);
