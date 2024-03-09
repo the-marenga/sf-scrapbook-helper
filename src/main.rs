@@ -32,9 +32,11 @@ use log4rs::{
     config::{Appender, Logger, Root},
     encode::pattern::PatternEncoder,
 };
-use login::{Auth, LoginState, LoginType, SSOStatus, SSOValidator};
+use login::{LoginState, LoginType, PlayerAuth, SSOStatus, SSOValidator};
 use nohash_hasher::IntMap;
-use player::{AccountInfo, AccountStatus, AutoAttackChecker, AutoPoll, ScrapbookInfo};
+use player::{
+    AccountInfo, AccountStatus, AutoAttackChecker, AutoPoll, ScrapbookInfo,
+};
 use serde::{Deserialize, Serialize};
 use server::{CrawlingStatus, ServerIdent, ServerInfo, Servers};
 use sf_api::{gamestate::unlockables::EquipmentIdent, sso::SSOProvider};
@@ -225,7 +227,7 @@ impl Application for Helper {
                 subs.push(subscription);
 
                 let Some(si) = &acc.scrapbook_info else {
-                   continue
+                    continue;
                 };
 
                 if !si.auto_battle {
@@ -339,11 +341,11 @@ impl Helper {
         }
 
         let Some(si) = &mut account.scrapbook_info else {
-            return Command::none()
+            return Command::none();
         };
 
         let per_player_counts = calc_per_player_count(
-            player_info, equipment, &si.scrapbook.items, &si,
+            player_info, equipment, &si.scrapbook.items, si,
         );
         let best_players = find_best(&per_player_counts, player_info, 20);
 
@@ -631,7 +633,7 @@ fn get_log_config() -> log4rs::Config {
         .build("helper.log")
         .unwrap();
 
-    let config = log4rs::Config::builder()
+    log4rs::Config::builder()
         .appender(Appender::builder().build("logfile", Box::new(logfile)))
         .appender(Appender::builder().build("stderr", Box::new(stderr)))
         .logger(
@@ -649,6 +651,5 @@ fn get_log_config() -> log4rs::Config {
                 .appender("stderr")
                 .build(log::LevelFilter::Error),
         )
-        .unwrap();
-    config
+        .unwrap()
 }

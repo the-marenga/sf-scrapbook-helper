@@ -23,7 +23,7 @@ pub fn view_scrapbook<'a>(
     max_threads: usize,
 ) -> Element<'a, Message> {
     let Some(si) = &player.scrapbook_info else {
-         return text("Player does not have a scrapbook").size(20).into()
+        return text("Player does not have a scrapbook").size(20).into();
     };
 
     let lock = player.status.lock().unwrap();
@@ -35,7 +35,7 @@ pub fn view_scrapbook<'a>(
             return text(format!("Error: {err}")).size(20).into()
         }
         AccountStatus::LoggingInAgain => {
-            return text(format!("Logging in player again")).size(20).into()
+            return text("Logging in player again".to_string()).size(20).into()
         }
     };
 
@@ -66,12 +66,11 @@ pub fn view_scrapbook<'a>(
     ));
 
     let aid = player.ident;
-    let max_lvl = number_input(si.max_level, 9999, move |nv| {
-        Message::PlayerSetMaxLvl {
+    let max_lvl =
+        number_input(si.max_level, 9999, move |nv| Message::PlayerSetMaxLvl {
             ident: aid,
             max: nv,
-        }
-    });
+        });
 
     let max_lvl = row!(text("Max Level:"), horizontal_space(), max_lvl)
         .align_items(Alignment::Center);
@@ -197,27 +196,28 @@ pub fn view_scrapbook<'a>(
     }
 
     let mut name_bar = column!();
-    name_bar = name_bar.push(row!(
-        text("Attack")
-            .width(Length::FillPortion(1))
-            .horizontal_alignment(Horizontal::Center),
-        text("Missing")
-            .width(Length::FillPortion(1))
-            .horizontal_alignment(Horizontal::Center),
-        text("Level")
-            .width(Length::FillPortion(1))
-            .horizontal_alignment(Horizontal::Center),
-        text("Attributes")
-            .width(Length::FillPortion(1))
-            .horizontal_alignment(Horizontal::Center),
-        text("Name")
-            .width(Length::FillPortion(3))
-            .horizontal_alignment(Horizontal::Left),
-        text("Fetched")
-            .width(Length::FillPortion(1))
-            .horizontal_alignment(Horizontal::Center),
-    ))
-    .padding(15);
+    name_bar = name_bar
+        .push(row!(
+            text("Attack")
+                .width(Length::FillPortion(1))
+                .horizontal_alignment(Horizontal::Center),
+            text("Missing")
+                .width(Length::FillPortion(1))
+                .horizontal_alignment(Horizontal::Center),
+            text("Level")
+                .width(Length::FillPortion(1))
+                .horizontal_alignment(Horizontal::Center),
+            text("Attributes")
+                .width(Length::FillPortion(1))
+                .horizontal_alignment(Horizontal::Center),
+            text("Name")
+                .width(Length::FillPortion(3))
+                .horizontal_alignment(Horizontal::Left),
+            text("Fetched")
+                .width(Length::FillPortion(1))
+                .horizontal_alignment(Horizontal::Center),
+        ))
+        .padding(15);
     let name_bar = scrollable(name_bar);
 
     let mut target_list = column!().spacing(10);
@@ -257,8 +257,7 @@ pub fn view_scrapbook<'a>(
         ));
     }
     let target_list = scrollable(target_list);
-    let right_col = column!(name_bar, target_list)
-        .width(Length::Fill);
+    let right_col = column!(name_bar, target_list).width(Length::Fill);
 
     row!(
         left_col.width(Length::FillPortion(1)),

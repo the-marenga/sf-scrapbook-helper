@@ -4,7 +4,11 @@ use iced::{
     Alignment, Element, Length,
 };
 
-use crate::{message::Message, player::{AccountInfo, AccountStatus}, server::ServerInfo};
+use crate::{
+    message::Message,
+    player::{AccountInfo, AccountStatus},
+    server::ServerInfo,
+};
 
 pub fn view_dungeon<'a>(
     _server: &'a ServerInfo,
@@ -19,12 +23,14 @@ pub fn view_dungeon<'a>(
             return text(format!("Error: {err}")).size(20).into()
         }
         AccountStatus::LoggingInAgain => {
-            return text(format!("Logging in player again")).size(20).into()
+            return text("Logging in player again".to_string()).size(20).into()
         }
     };
 
     let Some(underworld) = &gs.unlocks.underworld else {
-        return text(format!("Underworld not unlocked yet")).size(20).into()
+        return text("Underworld not unlocked yet".to_string())
+            .size(20)
+            .into();
     };
 
     let mut left_col = column!().align_items(Alignment::Center).spacing(10);
@@ -34,7 +40,6 @@ pub fn view_dungeon<'a>(
             .width(Length::FillPortion(1))
             .horizontal_alignment(Horizontal::Right)
     ));
-
 
     let mut name_bar = column!();
     name_bar = name_bar

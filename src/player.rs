@@ -12,12 +12,12 @@ use sf_api::{
 };
 use tokio::time::sleep;
 
-use crate::{login::Auth, message::Message, AccountIdent, AttackTarget};
+use crate::{login::PlayerAuth, message::Message, AccountIdent, AttackTarget};
 
 pub struct AccountInfo {
     pub name: String,
     pub ident: AccountIdent,
-    pub auth: Auth,
+    pub auth: PlayerAuth,
     pub last_updated: DateTime<Local>,
     pub status: Arc<Mutex<AccountStatus>>,
     pub scrapbook_info: Option<ScrapbookInfo>,
@@ -48,7 +48,7 @@ impl ScrapbookInfo {
 impl AccountInfo {
     pub fn new(
         name: &str,
-        auth: Auth,
+        auth: PlayerAuth,
         account_ident: AccountIdent,
     ) -> AccountInfo {
         AccountInfo {

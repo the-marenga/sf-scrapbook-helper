@@ -375,7 +375,7 @@ impl Helper {
 
                 if remember {
                     match &player.auth {
-                        Auth::NormalHash(hash) => {
+                        PlayerAuth::Normal(hash) => {
                             self.config.accounts.retain(|a| match &a.creds {
                                 AccountCreds::Regular {
                                     name,
@@ -396,7 +396,7 @@ impl Helper {
                             ));
                             _ = self.config.write();
                         }
-                        Auth::SSO => {}
+                        PlayerAuth::SSO => {}
                     }
                 }
 
@@ -914,7 +914,7 @@ impl Helper {
             Message::SSOImport { pos } => {
                 // TODO: Bounds check this?
                 let account = self.login_state.import_que.remove(pos);
-                return self.login(account, false, Auth::SSO);
+                return self.login(account, false, PlayerAuth::SSO);
             }
             Message::ViewSubPage { player, page } => {
                 self.current_view = View::Account {
@@ -1111,7 +1111,7 @@ impl Helper {
                 let mut scrapbook = si.scrapbook.items.clone();
 
                 let mut per_player_counts = calc_per_player_count(
-                    player_info, equipment, &scrapbook, &si,
+                    player_info, equipment, &scrapbook, si,
                 );
 
                 let mut target_list = Vec::new();

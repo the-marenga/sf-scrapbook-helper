@@ -444,14 +444,14 @@ impl Helper {
             con,
         );
 
-        self.login(session, remember, Auth::NormalHash(pw_hash))
+        self.login(session, remember, PlayerAuth::Normal(pw_hash))
     }
 
     pub fn login(
         &mut self,
         mut session: sf_api::session::CharacterSession,
         remember: bool,
-        auth: Auth,
+        auth: PlayerAuth,
     ) -> Command<Message> {
         let server_ident = ServerIdent::new(session.server_url().as_str());
         let Some(connection) = ServerConnection::new(&server_ident.url) else {
@@ -556,7 +556,7 @@ impl Helper {
 }
 
 #[allow(clippy::upper_case_acronyms)]
-pub enum Auth {
-    NormalHash(PWHash),
+pub enum PlayerAuth {
+    Normal(PWHash),
     SSO,
 }
