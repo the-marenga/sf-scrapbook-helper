@@ -1,21 +1,21 @@
 use iced::{
     alignment::Horizontal,
-    widget::{column, row, scrollable, text},
+    widget::{button, column, horizontal_space, pick_list, progress_bar, row, scrollable, text, vertical_space},
     Alignment, Element, Length,
 };
+use iced_aw::number_input;
 
 use crate::{
-    message::Message,
-    player::{AccountInfo, AccountStatus},
-    server::ServerInfo,
+    crawler::CrawlingOrder, message::Message, player::{AccountInfo, AccountStatus}, server::{CrawlingStatus, ServerInfo}
 };
 
-pub fn view_dungeon<'a>(
-    _server: &'a ServerInfo,
+pub fn view_underworld<'a>(
+    server: &'a ServerInfo,
     player: &'a AccountInfo,
+    max_threads: usize,
 ) -> Element<'a, Message> {
     let lock = player.status.lock().unwrap();
-    let gs = match &*lock {
+    let _gs = match &*lock {
         AccountStatus::LoggingIn => return text("Loggin in").size(20).into(),
         AccountStatus::Idle(_, gs) => gs,
         AccountStatus::Busy(gs) => gs,
@@ -27,7 +27,7 @@ pub fn view_dungeon<'a>(
         }
     };
 
-    let Some(underworld) = &gs.unlocks.underworld else {
+    let Some(info) = &player.underworld_info else {
         return text("Underworld not unlocked yet".to_string())
             .size(20)
             .into();
@@ -36,57 +36,129 @@ pub fn view_dungeon<'a>(
     let mut left_col = column!().align_items(Alignment::Center).spacing(10);
     left_col = left_col.push(row!(
         text("Lured Today:").width(Length::FillPortion(1)),
-        text(underworld.battles_today)
+        text(format!("{}/5", info.underworld.battles_today))
             .width(Length::FillPortion(1))
-            .horizontal_alignment(Horizontal::Right)
+            .horizontal_alignment(Horizontal::Right),
     ));
+
+    left_col = left_col.push(vertical_space());
+    let sid = server.ident.id;
+    match &server.crawling {
+        CrawlingStatus::Crawling {
+            threads,
+            que,
+            player_info,
+            ..
+        } => {
+            let lock = que.lock().unwrap();
+            let remaining = lock.count_remaining();
+            let crawled = player_info.len();
+            let total = remaining + crawled;
+
+            let progress_text = text(format!("Fetched {}/{}", crawled, total));
+            left_col = left_col.push(progress_text);
+
+            let progress = progress_bar(0.0..=total as f32, crawled as f32)
+                .height(Length::Fixed(10.0));
+            left_col = left_col.push(progress);
+
+            let thread_num = number_input(*threads, max_threads, move |nv| {
+                Message::CrawlerSetThreads {
+                    server: sid,
+                    new_count: nv,
+                }
+            });
+            let thread_num =
+                row!(text("Threads: "), horizontal_space(), thread_num)
+                    .align_items(Alignment::Center);
+            left_col = left_col.push(thread_num);
+            let order_picker = pick_list(
+                [
+                    CrawlingOrder::Random,
+                    CrawlingOrder::TopDown,
+                    CrawlingOrder::BottomUp,
+                ],
+                Some(lock.order),
+                |nv| Message::OrderChange {
+                    server: server.ident.id,
+                    new: nv,
+                },
+            );
+            left_col = left_col.push(
+                row!(
+                    text("Crawling Order:").width(Length::FillPortion(1)),
+                    order_picker.width(Length::FillPortion(1))
+                )
+                .align_items(Alignment::Center),
+            );
+
+            let clear = button("Clear HoF").on_press(Message::ClearHof(sid));
+            let save = button("Save HoF").on_press(Message::SaveHoF(sid));
+            left_col = left_col.push(
+                column!(row!(clear, save).spacing(10))
+                    .align_items(Alignment::Center),
+            );
+
+            drop(lock);
+        }
+        CrawlingStatus::Waiting => {
+            left_col = left_col.push(text("Waiting for Player..."));
+        }
+        CrawlingStatus::Restoring => {
+            left_col = left_col.push(text("Loading Server Data..."));
+        }
+        CrawlingStatus::CrawlingFailed(_) => {
+            left_col = left_col.push(text("Crawling Failed"));
+        }
+    }
 
     let mut name_bar = column!();
     name_bar = name_bar
         .push(row!(
-            text("Lure")
+            text("")
                 .width(Length::FillPortion(1))
                 .horizontal_alignment(Horizontal::Center),
             text("Level")
                 .width(Length::FillPortion(1))
                 .horizontal_alignment(Horizontal::Center),
+            text("Items")
+                .width(Length::FillPortion(1))
+                .horizontal_alignment(Horizontal::Center),
             text("Name")
-                .width(Length::FillPortion(5))
+                .width(Length::FillPortion(3))
                 .horizontal_alignment(Horizontal::Left),
             text("Fetched")
                 .width(Length::FillPortion(1))
-                .horizontal_alignment(Horizontal::Right),
-        ))
-        .padding(15);
+                .horizontal_alignment(Horizontal::Center),
+        ));
     let name_bar = scrollable(name_bar);
 
-    let target_list = column!().spacing(10);
-    // for v in &player.best {
-    //     target_list = target_list
-    //         .push(row!(
-    //             column!(button("Lure").on_press(Message::PlayerAttack {
-    //                 ident: player.ident,
-    //                 target: v.to_owned()
-    //             }))
-    //             .align_items(Alignment::Center)
-    //             .width(Length::FillPortion(1)),
-    //             text(v.info.level)
-    //                 .width(Length::FillPortion(1))
-    //                 .horizontal_alignment(Horizontal::Center),
-    //             text(&v.info.name)
-    //                 .width(Length::FillPortion(5))
-    //                 .horizontal_alignment(Horizontal::Left),
-    //             text(
-    //                 &v.info
-    //                     .fetch_date
-    //                     .map(|a| a.format("%d-%m-%y").to_string())
-    //                     .unwrap_or_else(|| { "Unknown".to_string() })
-    //             )
-    //             .width(Length::FillPortion(1))
-    //             .horizontal_alignment(Horizontal::Right),
-    //         ))
-    //         .padding(15);
-    // }
+    let mut target_list = column!().spacing(10);
+    for v in &info.best {
+        target_list = target_list
+            .push(row!(
+                column!(button("Lure"))
+                    .align_items(Alignment::Center)
+                    .width(Length::FillPortion(1)),
+                text(v.level)
+                    .width(Length::FillPortion(1))
+                    .horizontal_alignment(Horizontal::Center),
+                text(v.equipment.len())
+                    .width(Length::FillPortion(1))
+                    .horizontal_alignment(Horizontal::Center),
+                text(&v.name)
+                    .width(Length::FillPortion(3))
+                    .horizontal_alignment(Horizontal::Left),
+                text(
+                    &v
+                        .fetch_date
+                        .map(|a| a.format("%d-%m-%y").to_string())
+                        .unwrap_or_else(|| { "???".to_string() })
+                )
+                .width(Length::FillPortion(1))
+                .horizontal_alignment(Horizontal::Center),
+            ));
+    }
     let target_list = scrollable(target_list);
     let right_col = column!(name_bar, target_list).width(Length::Fill);
 

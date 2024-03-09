@@ -8,7 +8,7 @@ use iced::{
 };
 use iced_aw::number_input;
 
-use self::{dungeon::view_dungeon, scrapbook::view_scrapbook};
+use self::{dungeon::view_underworld, scrapbook::view_scrapbook};
 use crate::{
     config::AvailableTheme, get_server_code, message::Message, top_bar,
     AccountIdent, AccountPage, Helper, View,
@@ -77,7 +77,9 @@ impl Helper {
             AccountPage::Scrapbook => {
                 view_scrapbook(server, player, self.config.max_threads)
             }
-            AccountPage::Underworld => view_dungeon(server, player),
+            AccountPage::Underworld => {
+                view_underworld(server, player, self.config.max_threads)
+            }
         };
 
         let col_container = container(middle).center_y();

@@ -1,11 +1,11 @@
 use std::{
-    collections::{HashMap, HashSet},
+    collections::{BTreeMap, HashMap, HashSet},
     hash::Hasher,
     sync::{Arc, Mutex},
 };
 
 use chrono::{DateTime, Local};
-use nohash_hasher::IntMap;
+use nohash_hasher::{IntMap, IntSet};
 use sf_api::{
     gamestate::unlockables::EquipmentIdent, session::ServerConnection,
 };
@@ -31,6 +31,7 @@ pub enum CrawlingStatus {
             HashSet<u32, ahash::RandomState>,
             ahash::RandomState,
         >,
+        naked: BTreeMap<u16, IntSet<u32>>,
         last_update: DateTime<Local>,
         crawling_session: Option<Arc<CrawlerState>>,
         recent_failures: Vec<CrawlAction>,

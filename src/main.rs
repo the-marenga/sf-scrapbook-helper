@@ -9,7 +9,7 @@ mod server;
 mod ui;
 
 use std::{
-    collections::{hash_map::Entry, HashMap, HashSet},
+    collections::{hash_map::Entry, BTreeMap, HashMap, HashSet},
     sync::{atomic::AtomicU64, Arc, Mutex},
     time::Duration,
 };
@@ -33,7 +33,7 @@ use log4rs::{
     encode::pattern::PatternEncoder,
 };
 use login::{LoginState, LoginType, PlayerAuth, SSOStatus, SSOValidator};
-use nohash_hasher::IntMap;
+use nohash_hasher::{IntMap, IntSet};
 use player::{
     AccountInfo, AccountStatus, AutoAttackChecker, AutoPoll, ScrapbookInfo,
 };
@@ -125,6 +125,12 @@ pub struct CharacterInfo {
     stats: Option<u32>,
     #[serde(skip)]
     fetch_date: Option<NaiveDate>,
+}
+
+impl CharacterInfo {
+    pub fn is_old(&self) -> bool {
+        self.fetch_date.unwrap_or_default() < Utc::now().date_naive()
+    }
 }
 
 impl PartialOrd for CharacterInfo {
@@ -324,6 +330,7 @@ impl Helper {
             threads,
             player_info,
             equipment,
+            naked,
             ..
         } = &mut server.crawling
         else {
@@ -340,31 +347,57 @@ impl Helper {
             return Command::none();
         }
 
-        let Some(si) = &mut account.scrapbook_info else {
-            return Command::none();
-        };
-
-        let per_player_counts = calc_per_player_count(
-            player_info, equipment, &si.scrapbook.items, si,
-        );
-        let best_players = find_best(&per_player_counts, player_info, 20);
-
-        si.best = best_players;
-        account.last_updated = Local::now();
+        let mut has_old = false;
 
         let mut lock = que.lock().unwrap();
-        for target in &si.best {
-            if target.is_old()
-                && !lock.todo_accounts.contains(&target.info.name)
-                && !lock.invalid_accounts.contains(&target.info.name)
-                && !lock.in_flight_accounts.contains(&target.info.name)
-            {
-                lock.todo_accounts.push(target.info.name.to_string())
+
+        if let Some(si) = &mut account.scrapbook_info {
+            let per_player_counts = calc_per_player_count(
+                player_info, equipment, &si.scrapbook.items, si,
+            );
+            let best_players = find_best(&per_player_counts, player_info, 20);
+
+            si.best = best_players;
+
+            for target in &si.best {
+                if target.is_old()
+                    && !lock.todo_accounts.contains(&target.info.name)
+                    && !lock.invalid_accounts.contains(&target.info.name)
+                    && !lock.in_flight_accounts.contains(&target.info.name)
+                {
+                    has_old = true;
+                    lock.todo_accounts.push(target.info.name.to_string())
+                }
+            }
+        };
+
+        if let Some(ui) = &mut account.underworld_info {
+            ui.best.clear();
+            'a: for (_, players) in naked.range(..=ui.max_level).rev() {
+                for player in players.iter() {
+                    if ui.best.len() >= 30 {
+                        break 'a;
+                    }
+                    let Some(info) = player_info.get(player) else {
+                        continue;
+                    };
+                    if info.is_old()
+                        && !lock.todo_accounts.contains(&info.name)
+                        && !lock.invalid_accounts.contains(&info.name)
+                        && !lock.in_flight_accounts.contains(&info.name)
+                    {
+                        has_old = true;
+                        lock.todo_accounts.push(info.name.to_string())
+                    }
+                    ui.best.push(info.to_owned());
+                }
             }
         }
         drop(lock);
 
-        if *threads == 0 {
+        account.last_updated = Local::now();
+
+        if has_old && *threads == 0 {
             return server.set_threads(1, &self.config.base_name);
         }
         Command::none()
@@ -494,7 +527,7 @@ pub struct AttackTarget {
 }
 impl AttackTarget {
     fn is_old(&self) -> bool {
-        self.info.fetch_date.unwrap_or_default() < Utc::now().date_naive()
+        self.info.is_old()
     }
 }
 
@@ -578,8 +611,11 @@ pub fn handle_new_char_info(
         ahash::RandomState,
     >,
     player_info: &mut IntMap<u32, CharacterInfo>,
+    naked: &mut BTreeMap<u16, IntSet<u32>>,
 ) {
     let player_entry = player_info.entry(char.uid);
+
+    const EQ_CUTOFF:usize = 4;
 
     match player_entry {
         Entry::Occupied(mut old) => {
@@ -601,6 +637,13 @@ pub fn handle_new_char_info(
                         HashSet::from_iter([char.uid].into_iter())
                     });
             }
+            if char.equipment.len() < EQ_CUTOFF {
+                naked.entry(char.level).or_default().insert(char.uid);
+            } else {
+                naked.entry(char.level).and_modify(|a| {
+                    a.remove(&char.uid);
+                });
+            }
             old.insert(char);
         }
         Entry::Vacant(v) => {
@@ -613,6 +656,9 @@ pub fn handle_new_char_info(
                     .or_insert_with(|| {
                         HashSet::from_iter([char.uid].into_iter())
                     });
+            }
+            if char.equipment.len() < EQ_CUTOFF && char.level >= 100 {
+                naked.entry(char.level).or_default().insert(char.uid);
             }
             v.insert(char);
         }

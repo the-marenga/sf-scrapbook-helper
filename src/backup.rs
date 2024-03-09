@@ -1,12 +1,12 @@
 use std::{
-    collections::{HashMap, HashSet},
+    collections::{BTreeMap, HashMap, HashSet},
     sync::{Arc, Mutex},
 };
 
 use async_compression::tokio::write::ZlibEncoder;
 use chrono::{DateTime, Local, Utc};
 use log::{debug, warn};
-use nohash_hasher::IntMap;
+use nohash_hasher::{IntMap, IntSet};
 use serde::{Deserialize, Serialize};
 use sf_api::gamestate::unlockables::EquipmentIdent;
 use tokio::{
@@ -53,6 +53,7 @@ pub async fn restore_backup(
 
     let mut equipment = Default::default();
     let mut player_info = Default::default();
+    let mut naked = Default::default();
 
     for (idx, char) in new_info.characters.into_iter().enumerate() {
         if idx % 10_001 == 10_000 {
@@ -60,7 +61,7 @@ pub async fn restore_backup(
             // not block the ui by yielding after a bit
             yield_now().await;
         }
-        handle_new_char_info(char, &mut equipment, &mut player_info);
+        handle_new_char_info(char, &mut equipment, &mut player_info, &mut naked);
     }
 
     RestoreData {
@@ -72,6 +73,7 @@ pub async fn restore_backup(
         todo_accounts,
         invalid_accounts,
         order,
+        naked,
     }
 }
 
@@ -79,6 +81,7 @@ pub async fn restore_backup(
 pub struct RestoreData {
     pub que_id: QueID,
     pub player_info: IntMap<u32, CharacterInfo>,
+    pub naked: BTreeMap<u16, IntSet<u32>>,
     pub equipment: HashMap<
         EquipmentIdent,
         HashSet<u32, ahash::RandomState>,
@@ -108,6 +111,7 @@ impl RestoreData {
             })),
             player_info: self.player_info,
             equipment: self.equipment,
+            naked: self.naked,
             last_update: Local::now(),
             crawling_session: None,
             recent_failures: vec![],

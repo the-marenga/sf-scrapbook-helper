@@ -7,12 +7,12 @@ use chrono::{DateTime, Local};
 use log::trace;
 use nohash_hasher::IntMap;
 use sf_api::{
-    gamestate::{unlockables::ScrapBook, GameState},
+    gamestate::{underworld::Underworld, unlockables::ScrapBook, GameState},
     session::CharacterSession,
 };
 use tokio::time::sleep;
 
-use crate::{login::PlayerAuth, message::Message, AccountIdent, AttackTarget};
+use crate::{login::PlayerAuth, message::Message, AccountIdent, AttackTarget, CharacterInfo};
 
 pub struct AccountInfo {
     pub name: String,
@@ -21,6 +21,27 @@ pub struct AccountInfo {
     pub last_updated: DateTime<Local>,
     pub status: Arc<Mutex<AccountStatus>>,
     pub scrapbook_info: Option<ScrapbookInfo>,
+    pub underworld_info: Option<UnderworldInfo>,
+}
+
+pub struct UnderworldInfo {
+    pub underworld: Underworld,
+    pub best: Vec<CharacterInfo>,
+    pub max_level: u16,
+    pub attack_log: Vec<(DateTime<Local>, CharacterInfo, bool)>,
+}
+
+impl UnderworldInfo {
+    pub fn new(gs: &GameState) -> Option<Self> {
+        // TODO: Pre set min & max level
+        Some(Self{
+            underworld: gs.unlocks.underworld.as_ref()?.clone(),
+            best: Default::default(),
+            max_level: 999,
+            attack_log: Vec::new(),
+        })
+
+    }
 }
 
 pub struct ScrapbookInfo {
@@ -55,6 +76,7 @@ impl AccountInfo {
             name: name.to_string(),
             auth,
             scrapbook_info: None,
+            underworld_info: None,
             last_updated: Local::now(),
             status: Arc::new(Mutex::new(AccountStatus::LoggingIn)),
             ident: account_ident,

@@ -22,10 +22,6 @@ pub fn view_scrapbook<'a>(
     player: &'a AccountInfo,
     max_threads: usize,
 ) -> Element<'a, Message> {
-    let Some(si) = &player.scrapbook_info else {
-        return text("Player does not have a scrapbook").size(20).into();
-    };
-
     let lock = player.status.lock().unwrap();
     let gs = match &*lock {
         AccountStatus::LoggingIn => return text("Loggin in").size(20).into(),
@@ -37,6 +33,10 @@ pub fn view_scrapbook<'a>(
         AccountStatus::LoggingInAgain => {
             return text("Logging in player again".to_string()).size(20).into()
         }
+    };
+
+    let Some(si) = &player.scrapbook_info else {
+        return text("Player does not have a scrapbook").size(20).into();
     };
 
     let mut left_col = column!().align_items(Alignment::Center).spacing(10);
@@ -124,7 +124,6 @@ pub fn view_scrapbook<'a>(
         left_col = left_col.push(scrollable(log).height(Length::Fixed(200.0)));
     }
     left_col = left_col.push(vertical_space());
-
     let sid = server.ident.id;
     match &server.crawling {
         CrawlingStatus::Crawling {
@@ -198,7 +197,7 @@ pub fn view_scrapbook<'a>(
     let mut name_bar = column!();
     name_bar = name_bar
         .push(row!(
-            text("Attack")
+            text("")
                 .width(Length::FillPortion(1))
                 .horizontal_alignment(Horizontal::Center),
             text("Missing")
@@ -216,8 +215,7 @@ pub fn view_scrapbook<'a>(
             text("Fetched")
                 .width(Length::FillPortion(1))
                 .horizontal_alignment(Horizontal::Center),
-        ))
-        .padding(15);
+        ));
     let name_bar = scrollable(name_bar);
 
     let mut target_list = column!().spacing(10);

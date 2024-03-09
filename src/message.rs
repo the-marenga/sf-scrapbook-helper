@@ -14,7 +14,7 @@ use self::{
     backup::{get_newest_backup, restore_backup, RestoreData, ZHofBackup},
     login::{SSOIdent, SSOLogin, SSOLoginStatus},
 };
-use crate::{crawler::CrawlerState, player::ScrapbookInfo, *};
+use crate::{crawler::CrawlerState, player::{ScrapbookInfo, UnderworldInfo}, *};
 
 #[derive(Debug, Clone)]
 pub enum Message {
@@ -185,6 +185,7 @@ impl Helper {
                     last_update,
                     que,
                     recent_failures,
+                    naked,
                     ..
                 } = &mut server.crawling
                 else {
@@ -208,7 +209,7 @@ impl Helper {
 
                 *last_update = Local::now();
 
-                handle_new_char_info(character, equipment, player_info);
+                handle_new_char_info(character, equipment, player_info, naked);
 
                 if crawler_finished {
                     let mut commands = vec![];
@@ -404,6 +405,7 @@ impl Helper {
                 let total_pages = (total_players as usize).div_ceil(PER_PAGE);
 
                 player.scrapbook_info = ScrapbookInfo::new(&gs);
+                player.underworld_info = UnderworldInfo::new(&gs);
 
                 *player.status.lock().unwrap() =
                     AccountStatus::Idle(session, gs);
