@@ -60,6 +60,20 @@ pub fn view_underworld<'a>(
         .horizontal_alignment(Horizontal::Right),
     ));
 
+    let avg_lvl = info
+        .underworld
+        .units
+        .iter()
+        .map(|a| a.level as u64)
+        .sum::<u64>() as f32
+        / 3.0;
+    left_col = left_col.push(row!(
+        text("Avg Unit Level:").width(Length::FillPortion(1)),
+        text(format!("{:.0}", avg_lvl))
+            .width(Length::FillPortion(1))
+            .horizontal_alignment(Horizontal::Right),
+    ));
+
     left_col = left_col.push(vertical_space());
     let sid = server.ident.id;
     match &server.crawling {
@@ -145,9 +159,6 @@ pub fn view_underworld<'a>(
         text("Name")
             .width(Length::FillPortion(3))
             .horizontal_alignment(Horizontal::Left),
-        text("Fetched")
-            .width(Length::FillPortion(1))
-            .horizontal_alignment(Horizontal::Center),
     ));
     let name_bar = scrollable(name_bar);
 
@@ -178,17 +189,12 @@ pub fn view_underworld<'a>(
             text(&v.name)
                 .width(Length::FillPortion(3))
                 .horizontal_alignment(Horizontal::Left),
-            text(
-                &v.fetch_date
-                    .map(|a| a.format("%d.%m.%y").to_string())
-                    .unwrap_or_else(|| { "???".to_string() })
-            )
-            .width(Length::FillPortion(1))
-            .horizontal_alignment(Horizontal::Center),
         ));
     }
     let target_list = scrollable(target_list);
-    let right_col = column!(name_bar, target_list).width(Length::Fill);
+    let right_col = column!(name_bar, target_list)
+        .width(Length::Fill)
+        .spacing(10);
 
     row!(
         left_col.width(Length::FillPortion(1)),

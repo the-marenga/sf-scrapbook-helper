@@ -211,9 +211,6 @@ pub fn view_scrapbook<'a>(
         text("Name")
             .width(Length::FillPortion(3))
             .horizontal_alignment(Horizontal::Left),
-        text("Fetched")
-            .width(Length::FillPortion(1))
-            .horizontal_alignment(Horizontal::Center),
     ));
     let name_bar = scrollable(name_bar);
 
@@ -243,18 +240,12 @@ pub fn view_scrapbook<'a>(
             text(&v.info.name)
                 .width(Length::FillPortion(3))
                 .horizontal_alignment(Horizontal::Left),
-            text(
-                &v.info
-                    .fetch_date
-                    .map(|a| a.format("%d.%m.%y").to_string())
-                    .unwrap_or_else(|| { "???".to_string() })
-            )
-            .width(Length::FillPortion(1))
-            .horizontal_alignment(Horizontal::Center),
         ));
     }
     let target_list = scrollable(target_list);
-    let right_col = column!(name_bar, target_list).width(Length::Fill);
+    let right_col = column!(name_bar, target_list)
+        .width(Length::Fill)
+        .spacing(10);
 
     row!(
         left_col.width(Length::FillPortion(1)),
