@@ -74,6 +74,17 @@ pub fn view_underworld<'a>(
             .width(Length::FillPortion(1))
             .horizontal_alignment(Horizontal::Right),
     ));
+    let aid = player.ident;
+    let max_lvl = number_input(info.max_level, 9999, move |nv| {
+        Message::PlayerSetMaxUndergroundLvl {
+            ident: aid,
+            lvl: nv,
+        }
+    });
+    let max_lvl = row!(text("Max Level:"), horizontal_space(), max_lvl)
+        .align_items(Alignment::Center);
+    left_col = left_col.push(max_lvl);
+
     if !info.attack_log.is_empty() {
         let mut log = column!().padding(5).spacing(5);
 

@@ -23,6 +23,10 @@ use crate::{
 
 #[derive(Debug, Clone)]
 pub enum Message {
+    PlayerSetMaxUndergroundLvl {
+        ident: AccountIdent,
+        lvl: u16,
+    },
     PlayerNotPolled {
         ident: AccountIdent,
     },
@@ -1326,6 +1330,21 @@ impl Helper {
                 }
 
                 drop(lock);
+            }
+            Message::PlayerSetMaxUndergroundLvl { ident, lvl } => {
+                let Some(server) = self.servers.get_mut(&ident.server_id)
+                else {
+                    return Command::none();
+                };
+                let Some(account) = server.accounts.get_mut(&ident.account)
+                else {
+                    return Command::none();
+                };
+                let Some(si) = &mut account.underworld_info else {
+                    return Command::none();
+                };
+                si.max_level = lvl;
+                return self.update_best(ident, false);
             }
         }
         Command::none()

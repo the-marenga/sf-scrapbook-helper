@@ -59,6 +59,9 @@ impl Helper {
 
         let top = row!(
             text(titlecase::titlecase(&player.name).to_string()).size(20),
+            text(get_server_code(&server.ident.url))
+                .horizontal_alignment(iced::alignment::Horizontal::Right)
+                .size(20),
             selection(AccountPage::Scrapbook),
             selection(AccountPage::Underworld),
             button(text("Logout"))

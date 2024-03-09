@@ -28,7 +28,7 @@ toml = "0.8"
 
 [profile.release]
 strip = true
-# lto = true
+lto = true
 
 [build-dependencies]
 winres = "0.1"
