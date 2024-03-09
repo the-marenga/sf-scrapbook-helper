@@ -195,27 +195,26 @@ pub fn view_scrapbook<'a>(
     }
 
     let mut name_bar = column!();
-    name_bar = name_bar
-        .push(row!(
-            text("")
-                .width(Length::FillPortion(1))
-                .horizontal_alignment(Horizontal::Center),
-            text("Missing")
-                .width(Length::FillPortion(1))
-                .horizontal_alignment(Horizontal::Center),
-            text("Level")
-                .width(Length::FillPortion(1))
-                .horizontal_alignment(Horizontal::Center),
-            text("Attributes")
-                .width(Length::FillPortion(1))
-                .horizontal_alignment(Horizontal::Center),
-            text("Name")
-                .width(Length::FillPortion(3))
-                .horizontal_alignment(Horizontal::Left),
-            text("Fetched")
-                .width(Length::FillPortion(1))
-                .horizontal_alignment(Horizontal::Center),
-        ));
+    name_bar = name_bar.push(row!(
+        text("")
+            .width(Length::FillPortion(1))
+            .horizontal_alignment(Horizontal::Center),
+        text("Missing")
+            .width(Length::FillPortion(1))
+            .horizontal_alignment(Horizontal::Center),
+        text("Level")
+            .width(Length::FillPortion(1))
+            .horizontal_alignment(Horizontal::Center),
+        text("Attributes")
+            .width(Length::FillPortion(1))
+            .horizontal_alignment(Horizontal::Center),
+        text("Name")
+            .width(Length::FillPortion(3))
+            .horizontal_alignment(Horizontal::Left),
+        text("Fetched")
+            .width(Length::FillPortion(1))
+            .horizontal_alignment(Horizontal::Center),
+    ));
     let name_bar = scrollable(name_bar);
 
     let mut target_list = column!().spacing(10);

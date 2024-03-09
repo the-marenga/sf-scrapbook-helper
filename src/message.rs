@@ -23,6 +23,12 @@ use crate::{
 
 #[derive(Debug, Clone)]
 pub enum Message {
+    PlayerNotPolled {
+        ident: AccountIdent,
+    },
+    PlayerPolled {
+        ident: AccountIdent,
+    },
     SSOLoginFailure {
         name: String,
         error: String,
@@ -1248,8 +1254,6 @@ impl Helper {
                     return Command::none();
                 };
 
-                _ = std::fs::write("resp.out", format!("{resp:?}"));
-
                 let v = account.status.clone();
                 let mut lock = v.lock().unwrap();
 
@@ -1282,6 +1286,39 @@ impl Helper {
                     si.underworld = underworld.clone();
                 }
                 lock.put_session(session);
+            }
+            Message::PlayerNotPolled { ident } => {
+                warn!("Unable to poll {ident:?}")
+            }
+            Message::PlayerPolled { ident } => {
+                let Some(server) = self.servers.0.get_mut(&ident.server_id)
+                else {
+                    return Command::none();
+                };
+                let Some(account) = server.accounts.get_mut(&ident.account)
+                else {
+                    return Command::none();
+                };
+                let mut lock = account.status.lock().unwrap();
+                let gs = match &mut *lock {
+                    AccountStatus::Busy(gs) | AccountStatus::Idle(_, gs) => gs,
+                    _ => {
+                        return Command::none();
+                    }
+                };
+
+                if let Some(sbi) = &mut account.scrapbook_info {
+                    if let Some(sb) = &gs.unlocks.scrapbok {
+                        sbi.scrapbook = sb.clone();
+                    }
+                }
+                if let Some(sbi) = &mut account.underworld_info {
+                    if let Some(sb) = &gs.unlocks.underworld {
+                        sbi.underworld = sb.clone();
+                    }
+                }
+
+                drop(lock);
             }
         }
         Command::none()

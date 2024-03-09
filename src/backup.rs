@@ -61,7 +61,9 @@ pub async fn restore_backup(
             // not block the ui by yielding after a bit
             yield_now().await;
         }
-        handle_new_char_info(char, &mut equipment, &mut player_info, &mut naked);
+        handle_new_char_info(
+            char, &mut equipment, &mut player_info, &mut naked,
+        );
     }
 
     RestoreData {

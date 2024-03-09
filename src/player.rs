@@ -12,7 +12,10 @@ use sf_api::{
 };
 use tokio::time::sleep;
 
-use crate::{login::PlayerAuth, message::Message, AccountIdent, AttackTarget, CharacterInfo};
+use crate::{
+    login::PlayerAuth, message::Message, AccountIdent, AttackTarget,
+    CharacterInfo,
+};
 
 pub struct AccountInfo {
     pub name: String,
@@ -34,13 +37,12 @@ pub struct UnderworldInfo {
 impl UnderworldInfo {
     pub fn new(gs: &GameState) -> Option<Self> {
         // TODO: Pre set min & max level
-        Some(Self{
+        Some(Self {
             underworld: gs.unlocks.underworld.as_ref()?.clone(),
             best: Default::default(),
             max_level: 999,
             attack_log: Vec::new(),
         })
-
     }
 }
 
@@ -148,43 +150,42 @@ pub struct AutoPoll {
 
 impl AutoPoll {
     pub async fn check(&self) -> Message {
-        loop {
-            sleep(Duration::from_millis(fastrand::u64(5000..=10000))).await;
-            let mut session = {
-                let mut lock = self.player_status.lock().unwrap();
-                let res = lock.take_session();
-                match res {
-                    Some(res) => res,
-                    None => continue,
-                }
-            };
-
-            trace!("Sending poll {:?}", self.ident);
-
-            let Ok(resp) = session
-                .send_command(&sf_api::command::Command::UpdatePlayer)
-                .await
-            else {
-                return Message::PlayerCommandFailed {
-                    ident: self.ident,
-                    session,
-                };
-            };
+        sleep(Duration::from_millis(fastrand::u64(5000..=10000))).await;
+        let mut session = {
             let mut lock = self.player_status.lock().unwrap();
-            let gs = match &mut *lock {
-                AccountStatus::Busy(gs) => gs,
-                _ => {
-                    lock.put_session(session);
-                    continue;
-                }
-            };
-            if gs.update(resp).is_err() {
-                return Message::PlayerCommandFailed {
-                    ident: self.ident,
-                    session,
-                };
+            let res = lock.take_session();
+            match res {
+                Some(res) => res,
+                None => return Message::PlayerNotPolled { ident: self.ident },
             }
-            lock.put_session(session);
+        };
+
+        trace!("Sending poll {:?}", self.ident);
+
+        let Ok(resp) = session
+            .send_command(&sf_api::command::Command::UpdatePlayer)
+            .await
+        else {
+            return Message::PlayerCommandFailed {
+                ident: self.ident,
+                session,
+            };
+        };
+        let mut lock = self.player_status.lock().unwrap();
+        let gs = match &mut *lock {
+            AccountStatus::Busy(gs) => gs,
+            _ => {
+                lock.put_session(session);
+                return Message::PlayerNotPolled { ident: self.ident };
+            }
+        };
+        if gs.update(resp).is_err() {
+            return Message::PlayerCommandFailed {
+                ident: self.ident,
+                session,
+            };
         }
+        lock.put_session(session);
+        Message::PlayerPolled { ident: self.ident }
     }
 }

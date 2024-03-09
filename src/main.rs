@@ -615,7 +615,7 @@ pub fn handle_new_char_info(
 ) {
     let player_entry = player_info.entry(char.uid);
 
-    const EQ_CUTOFF:usize = 4;
+    const EQ_CUTOFF: usize = 4;
 
     match player_entry {
         Entry::Occupied(mut old) => {
