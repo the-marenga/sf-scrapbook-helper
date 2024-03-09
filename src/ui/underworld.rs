@@ -154,13 +154,19 @@ pub fn view_underworld<'a>(
     let mut target_list = column!().spacing(10);
     for v in &info.best {
         target_list = target_list.push(row!(
-            column!(button("Lure").on_press(Message::PlayerLure {
-                ident: player.ident,
-                target: LureTarget {
-                    uid: v.uid,
-                    name: v.name.clone()
+            column!(button("Lure").on_press_maybe(
+                if info.underworld.battles_today >= 5 {
+                    None
+                } else {
+                    Some(Message::PlayerLure {
+                        ident: player.ident,
+                        target: LureTarget {
+                            uid: v.uid,
+                            name: v.name.clone(),
+                        },
+                    })
                 }
-            }))
+            ))
             .align_items(Alignment::Center)
             .width(Length::FillPortion(1)),
             text(v.level)
@@ -174,7 +180,7 @@ pub fn view_underworld<'a>(
                 .horizontal_alignment(Horizontal::Left),
             text(
                 &v.fetch_date
-                    .map(|a| a.format("%d-%m-%y").to_string())
+                    .map(|a| a.format("%d.%m.%y").to_string())
                     .unwrap_or_else(|| { "???".to_string() })
             )
             .width(Length::FillPortion(1))

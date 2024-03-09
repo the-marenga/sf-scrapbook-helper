@@ -1203,6 +1203,13 @@ impl Helper {
                 else {
                     return Command::none();
                 };
+                let Some(ud) = &account.underworld_info else {
+                    return Command::none();
+                };
+                if ud.underworld.battles_today >= 5 {
+                    return Command::none();
+                }
+
                 let CrawlingStatus::Crawling { .. } = &server.crawling else {
                     return Command::none();
                 };

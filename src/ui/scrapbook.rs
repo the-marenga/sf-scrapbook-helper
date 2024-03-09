@@ -246,7 +246,7 @@ pub fn view_scrapbook<'a>(
             text(
                 &v.info
                     .fetch_date
-                    .map(|a| a.format("%d-%m-%y").to_string())
+                    .map(|a| a.format("%d.%m.%y").to_string())
                     .unwrap_or_else(|| { "???".to_string() })
             )
             .width(Length::FillPortion(1))
