@@ -7,7 +7,7 @@ Supports multiple normal, SF, Google and Steam accounts simultaneously.
 
 The HoF will initially be fetched from a recent snapshot of the server. If you want a more recent version, you can crawl the server data yourself via the buttons on the left side. If  you want to pause the progress, you can store this crawling progress to disk and restore it at a later date. 
 
-<img width="912" src="https://github.com/the-marenga/sf-scrapbook-helper/assets/107524538/a4b4f6e9-3154-48a2-a1cb-b7a2c4ba342a">
+<img width="912" src="https://github.com/the-marenga/sf-scrapbook-helper/assets/107524538/64c6be2b-2e60-4a16-99a6-37db6443fcb8">
 
 ## Download
 
