@@ -125,34 +125,35 @@ pub async fn get_newest_backup(
     server_ident: String,
     fetch_online: bool,
 ) -> Option<Box<ZHofBackup>> {
-    let mut backup = ZHofBackup::read(&server_ident).await;
+    let backup = ZHofBackup::read(&server_ident).await;
     if let Err(e) = &backup {
         warn!("{server_ident} could not read in local backup: {e}")
-    };
-    if !fetch_online {
-        return backup.ok().map(Box::new);
     }
-    let online_time = fetch_online_hof_date(&server_ident).await;
+
+    let mut backup = backup.ok();
+    if !fetch_online {
+        return backup.map(Box::new);
+    }
+
+    let online_time = fetch_online_hof_date(&server_ident).await.ok();
     // Figure out, if the online version is newer, than the local backup
-    let fetch_online = match (
-        online_time.ok(),
-        backup.as_ref().ok().and_then(|a| a.export_time),
-    ) {
-        (Some(ot), Some(bt)) => {
-            let bt = bt.to_rfc2822();
-            let bt = DateTime::parse_from_rfc2822(&bt).unwrap().to_utc();
-            bt < ot
-        }
-        (Some(_), None) => true,
-        (None, _) => false,
-    };
+    let fetch_online =
+        match (online_time, backup.as_ref().and_then(|a| a.export_time)) {
+            (Some(ot), Some(bt)) => {
+                let bt = bt.to_rfc2822();
+                let bt = DateTime::parse_from_rfc2822(&bt).unwrap().to_utc();
+                bt < ot
+            }
+            (Some(_), None) => true,
+            (None, _) => false,
+        };
     debug!("{server_ident} fetch online backup: {fetch_online}");
     // If the online backup is newer, we fetch it and restore it
     if fetch_online && fetch_online_hof(&server_ident).await.is_ok() {
         debug!("{server_ident} fetched online HoF");
-        backup = ZHofBackup::read(&server_ident).await;
+        backup = ZHofBackup::read(&server_ident).await.ok();
     }
-    backup.ok().map(Box::new)
+    backup.map(Box::new)
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]

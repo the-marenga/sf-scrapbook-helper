@@ -333,20 +333,19 @@ impl Helper {
                                 .await;
                                 continue;
                             };
-                            let mut gs = state.gs.lock().unwrap();
                             let Ok(new_gs) = GameState::new(resp) else {
                                 error!(
                                     "Could not parse GS for crawler on {}",
                                     id
                                 );
                                 // we can not hold mutex guards accross awaits
-                                drop(gs);
                                 sleep(Duration::from_millis(fastrand::u64(
                                     1000..3000,
                                 )))
                                 .await;
                                 continue;
                             };
+                            let mut gs = state.gs.lock().unwrap();
                             *gs = new_gs;
                             return;
                         }
