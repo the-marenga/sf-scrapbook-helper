@@ -383,7 +383,7 @@ impl Helper {
             ui.best.clear();
             'a: for (_, players) in naked.range(..=ui.max_level).rev() {
                 for player in players.iter() {
-                    if ui.best.len() >= 30 {
+                    if ui.best.len() >= 20 {
                         break 'a;
                     }
                     let Some(info) = player_info.get(player) else {
@@ -645,12 +645,14 @@ pub fn handle_new_char_info(
                         HashSet::from_iter([char.uid].into_iter())
                     });
             }
+            if old_info.equipment.len() < EQ_CUTOFF {
+                naked.entry(old_info.level).and_modify(|a| {
+                    a.remove(&old_info.uid);
+                });
+            }
+
             if char.equipment.len() < EQ_CUTOFF {
                 naked.entry(char.level).or_default().insert(char.uid);
-            } else {
-                naked.entry(char.level).and_modify(|a| {
-                    a.remove(&char.uid);
-                });
             }
             old.insert(char);
         }
