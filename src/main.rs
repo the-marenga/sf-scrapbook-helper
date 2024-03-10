@@ -1,758 +1,120 @@
-#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")] // hide console window on Windows in release
-pub mod crawler;
-pub mod observer;
-pub mod player;
+#![windows_subsystem = "windows"]
+mod backup;
+mod config;
+mod crawler;
+mod login;
+mod message;
+mod player;
+mod server;
+mod ui;
 
 use std::{
-    hash::{Hash, Hasher},
-    sync::{atomic::*, mpsc::*, Arc, Mutex},
+    collections::{hash_map::Entry, BTreeMap, HashMap, HashSet},
+    sync::{atomic::AtomicU64, Arc, Mutex},
     time::Duration,
 };
 
-use chrono::Local;
-use crawler::{FETCHED_PLAYERS, PAGE_POS};
-use eframe::egui::{self, CentralPanel, Context, Layout, SidePanel};
-use observer::{
-    observe, ObserverCommand, ObserverInfo, INITIAL_LOAD_FINISHED,
-    SHOULD_UPDATE,
+use chrono::{Local, NaiveDate, Utc};
+use config::{CharacterConfig, Config};
+use crawler::{CrawlAction, Crawler, CrawlerState, CrawlingOrder, WorkerQue};
+use iced::{
+    executor, subscription, theme,
+    widget::{button, container, horizontal_space, row, text},
+    Alignment, Application, Command, Element, Length, Settings, Subscription,
+    Theme,
 };
-use once_cell::sync::OnceCell;
-use player::{handle_player, PlayerCommand, PlayerInfo};
+use log::{debug, info, trace};
+use log4rs::{
+    append::{
+        console::{ConsoleAppender, Target},
+        file::FileAppender,
+    },
+    config::{Appender, Logger, Root},
+    encode::pattern::PatternEncoder,
+};
+use login::{LoginState, LoginType, PlayerAuth, SSOStatus, SSOValidator};
+use nohash_hasher::{IntMap, IntSet};
+use player::{
+    AccountInfo, AccountStatus, AutoAttackChecker, AutoPoll, ScrapbookInfo,
+};
 use serde::{Deserialize, Serialize};
-use sf_api::{
-    error::SFError,
-    gamestate::{unlockables::EquipmentIdent, *},
-    session::*,
-    sso::SFAccount,
+use server::{CrawlingStatus, ServerIdent, ServerInfo, Servers};
+use sf_api::{gamestate::unlockables::EquipmentIdent, sso::SSOProvider};
+
+use crate::{
+    config::{AccountCreds, AvailableTheme},
+    message::Message,
 };
-use tokio::{runtime::Runtime, task::JoinHandle};
 
-static TOTAL_PLAYERS: AtomicUsize = AtomicUsize::new(0);
+pub const PER_PAGE: usize = 51;
 
-fn main() -> Result<(), eframe::Error> {
-    env_logger::builder()
-        .filter_level(log::LevelFilter::Warn)
-        .init();
+fn main() -> iced::Result {
+    let config = get_log_config();
+    log4rs::init_config(config).unwrap();
+    info!("Starting up");
 
-    let rt = Runtime::new().expect("Unable to create Runtime");
-    let _enter = rt.enter();
-
-    let options = eframe::NativeOptions {
-        viewport: egui::ViewportBuilder::default(),
-        ..Default::default()
-    };
-    eframe::run_native(
-        format!("Scrapbook Helper v{}", env!("CARGO_PKG_VERSION")).as_str(),
-        options,
-        Box::new(|cc| {
-            cc.egui_ctx.set_pixels_per_point(1.4);
-            Box::new(Stage::start_page(None))
-        }),
-    )
-}
-
-type Possible<T> = Arc<Mutex<Option<T>>>;
-
-enum Stage {
-    Login {
-        name: String,
-        password: String,
-        server: String,
-        sso_name: String,
-        sso_password: String,
-        error: Option<String>,
-    },
-    LoggingIn(
-        Possible<(Result<Response, SFError>, CharacterSession)>,
-        JoinHandle<()>,
-        ServerConnection,
-    ),
-    Overview {
-        gs: Arc<Mutex<GameState>>,
-        observ_sender: Sender<ObserverCommand>,
-        observ_receiver: Receiver<ObserverInfo>,
-        active: usize,
-        last_response: ObserverInfo,
-        max_level: u16,
-
-        player_sender: Sender<PlayerCommand>,
-        player_receiver: Receiver<PlayerInfo>,
-
-        last_player_response: Option<PlayerInfo>,
-        auto_battle: bool,
-    },
-    SSOLoggingIn(
-        Possible<Result<Vec<CharacterSession>, SFError>>,
-        JoinHandle<()>,
-    ),
-    SSODecide(Vec<CharacterSession>),
-}
-
-impl Stage {
-    pub fn start_page(error: Option<String>) -> Stage {
-        Stage::Login {
-            name: "".to_owned(),
-            password: "".to_owned(),
-            server: "f1.sfgame.net".to_owned(),
-            sso_name: "".to_string(),
-            sso_password: "".to_string(),
-            error,
-        }
-    }
-}
-
-static CONTEXT: OnceCell<Context> = OnceCell::new();
-
-impl eframe::App for Stage {
-    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        CONTEXT.get_or_init(|| ctx.to_owned());
-        let mut new_stage = None;
-        egui::CentralPanel::default().show(ctx, |ui| match self {
-            Stage::Login {
-                name,
-                password,
-                server,
-                sso_name,
-                sso_password,
-                error,
-            } => {
-                ui.vertical_centered(|ui| {
-                    ui.add_space(12.0);
-                    ui.heading("Regular Login");
-                    ui.add_space(12.0);
-
-                    ui.horizontal(|ui| {
-                        let name_label = ui.label("Username: ");
-                        ui.add_sized(
-                            ui.available_size(),
-                            egui::TextEdit::singleline(name),
-                        )
-                        .labelled_by(name_label.id);
-                    });
-                    ui.horizontal(|ui| {
-                        let password_label = ui.label("Password: ");
-                        let pw = ui
-                            .add_sized(
-                                ui.available_size(),
-                                egui::TextEdit::singleline(password)
-                                    .password(true),
-                            )
-                            .labelled_by(password_label.id);
-
-                        if pw.lost_focus()
-                            && pw.ctx.input(|a| a.key_down(egui::Key::Enter))
-                        {
-                            login_normal(
-                                server, name, password, &mut new_stage, error,
-                            );
-                        }
-                    });
-                    ui.horizontal(|ui| {
-                        let server_label = ui.label("Server: ");
-                        let pw = ui
-                            .add_sized(
-                                ui.available_size(),
-                                egui::TextEdit::singleline(server),
-                            )
-                            .labelled_by(server_label.id);
-                        if pw.lost_focus()
-                            && pw.ctx.input(|a| a.key_down(egui::Key::Enter))
-                        {
-                            login_normal(
-                                server, name, password, &mut new_stage, error,
-                            );
-                        }
-                    });
-                    ui.add_space(12.0);
-
-                    if ui.button("Login").clicked() {
-                        login_normal(
-                            server, name, password, &mut new_stage, error,
-                        );
-                    }
-                    ui.add_space(12.0);
-                    ui.heading("SSO Login");
-                    ui.add_space(12.0);
-                    ui.horizontal(|ui| {
-                        let name_label = ui.label("Username: ");
-                        ui.add_sized(
-                            ui.available_size(),
-                            egui::TextEdit::singleline(sso_name),
-                        )
-                        .labelled_by(name_label.id);
-                    });
-                    ui.horizontal(|ui| {
-                        let password_label = ui.label("Password: ");
-                        let pw = ui
-                            .add_sized(
-                                ui.available_size(),
-                                egui::TextEdit::singleline(sso_password)
-                                    .password(true),
-                            )
-                            .labelled_by(password_label.id);
-
-                        if pw.lost_focus()
-                            && pw.ctx.input(|a| a.key_down(egui::Key::Enter))
-                        {
-                            login_sso(sso_name, sso_password, &mut new_stage);
-                        }
-                    });
-
-                    if ui.button("SSO Login").clicked() {
-                        login_sso(sso_name, sso_password, &mut new_stage);
-                    }
-                    ui.add_space(12.0);
-
-                    if let Some(error) = &error {
-                        ui.label(error);
-                    }
-                });
-            }
-            Stage::SSODecide(character) => {
-                ui.vertical_centered(|ui| {
-                    for session in character {
-                        if ui
-                            .button(format!(
-                                "{} - {}",
-                                session.username(),
-                                session.server_url().as_str()
-                            ))
-                            .clicked()
-                        {
-                            let mut session = session.clone();
-                            let connection = ServerConnection::new(
-                                session.server_url().as_str(),
-                            )
-                            .unwrap();
-
-                            let arc = Arc::new(Mutex::new(None));
-                            let arc2 = arc.clone();
-
-                            let handle = tokio::spawn(async move {
-                                let res = session.login().await;
-                                *arc2.lock().unwrap() = Some((res, session));
-                                let c = CONTEXT.get().unwrap();
-                                c.request_repaint();
-                            });
-
-                            new_stage =
-                                Some(Stage::LoggingIn(arc, handle, connection));
-                        }
-                    }
-                });
-            }
-            Stage::SSOLoggingIn(arc, handle) => {
-                let res = match arc.try_lock() {
-                    Ok(mut r) => r.take(),
-                    _ => {
-                        ui.label("Logging in. Please wait...".to_string());
-                        return;
-                    }
-                };
-                match res {
-                    Some(Err(error)) => {
-                        handle.abort();
-                        *self = Stage::start_page(Some(format!(
-                            "Could not login: {error}"
-                        )));
-                    }
-                    Some(Ok(character)) => {
-                        handle.abort();
-                        *self = Stage::SSODecide(character);
-                    }
-                    None => {
-                        ui.with_layout(
-                            Layout::centered_and_justified(
-                                egui::Direction::TopDown,
-                            ),
-                            |ui| {
-                                ui.label(
-                                    "Logging in. Please wait...".to_string(),
-                                );
-                            },
-                        );
-                    }
-                }
-            }
-            Stage::LoggingIn(response, handle, sc) => {
-                let res = match response.try_lock() {
-                    Ok(mut r) => r.take(),
-                    _ => {
-                        ui.label("Logging in. Please wait...".to_string());
-                        return;
-                    }
-                };
-                match res {
-                    Some((Err(error), _)) => {
-                        handle.abort();
-                        *self = Stage::start_page(Some(format!(
-                            "Could not login: {error}"
-                        )));
-                    }
-                    Some((Ok(resp), session)) => {
-                        handle.abort();
-
-                        let gs = GameState::new(resp).unwrap();
-
-                        let (cmd_sender, cmd_recv) = std::sync::mpsc::channel();
-                        let (info_sender, info_recv) =
-                            std::sync::mpsc::channel();
-
-                        let initial_count = 0;
-
-                        let Some(sb) = gs.unlocks.scrapbok.clone() else {
-                            *self = Stage::start_page(Some(
-                                "Player does not have a scrapbook".to_string(),
-                            ));
-                            return;
-                        };
-
-                        let mut hasher = twox_hash::XxHash64::with_seed(0);
-                        gs.character.name.as_str().hash(&mut hasher);
-                        session.server_url().as_str().hash(&mut hasher);
-                        let player_hash = hasher.finish();
-
-                        let mut hasher = twox_hash::XxHash64::with_seed(0);
-                        session.server_url().as_str().hash(&mut hasher);
-                        let server_hash = hasher.finish();
-
-                        let server_url =
-                            session.server_url().as_str().to_string();
-
-                        tokio::spawn(observe(
-                            info_sender,
-                            cmd_recv,
-                            sb,
-                            sc.clone(),
-                            gs.other_players.total_player as usize,
-                            initial_count,
-                            gs.character.level,
-                            player_hash,
-                            server_hash,
-                            server_url,
-                        ));
-
-                        let max_level = gs.character.level;
-                        let (player_sender, player_recv) =
-                            std::sync::mpsc::channel();
-                        let (pi_sender, pi_recv) = std::sync::mpsc::channel();
-                        let gs = Arc::new(Mutex::new(gs));
-
-                        tokio::spawn(handle_player(
-                            pi_sender,
-                            player_recv,
-                            session,
-                            gs.clone(),
-                        ));
-
-                        *self = Stage::Overview {
-                            max_level,
-                            gs,
-                            observ_sender: cmd_sender,
-                            observ_receiver: info_recv,
-                            active: initial_count,
-                            last_response: ObserverInfo {
-                                best_players: Vec::new(),
-                                target_list: "".to_string(),
-                                time: None,
-                            },
-                            player_sender,
-                            player_receiver: pi_recv,
-                            last_player_response: None,
-                            auto_battle: false,
-                        };
-                    }
-                    None => {
-                        ui.with_layout(
-                            Layout::centered_and_justified(
-                                egui::Direction::TopDown,
-                            ),
-                            |ui| {
-                                ui.label(
-                                    "Logging in. Please wait...".to_string(),
-                                );
-                            },
-                        );
-                    }
-                }
-            }
-            Stage::Overview {
-                gs,
-                observ_sender: sender,
-                observ_receiver: receiver,
-                active,
-                last_response,
-                max_level,
-                player_sender,
-                player_receiver,
-                last_player_response,
-                auto_battle,
-            } => {
-                if !INITIAL_LOAD_FINISHED.load(Ordering::SeqCst) {
-                    ui.with_layout(
-                        Layout::centered_and_justified(
-                            egui::Direction::TopDown,
-                        ),
-                        |ui| {
-                            ui.group(|ui| {
-                                ui.set_height(ui.available_height() / 8.0);
-                                ui.set_width(ui.available_width() / 1.5);
-
-                                ui.label(
-                                    "Loading data. This might take a few \
-                                     seconds. Please wait",
-                                );
-
-                                ui.spinner();
-                            })
-                        },
-                    );
-                    return;
-                }
-
-                if let Ok(resp) = receiver.try_recv() {
-                    *last_response = resp
-                }
-
-                if let Ok(resp) = player_receiver.try_recv() {
-                    match &resp {
-                        PlayerInfo::Victory { uid, .. } => {
-                            sender
-                                .send(ObserverCommand::UpdateFight(*uid))
-                                .unwrap();
-                        }
-                        PlayerInfo::Lost { .. } => {}
-                    }
-                    *last_player_response = Some(resp)
-                }
-
-                let Ok(mut gs) = gs.lock() else {
-                    std::process::exit(1);
-                };
-                SidePanel::left("left").show(ctx, |ui| {
-                    ui.vertical_centered(|ui| {
-
-                        if SHOULD_UPDATE.load(Ordering::SeqCst) {
-                            ui.hyperlink_to("New Version Available", "https://github.com/the-marenga/sf-scrapbook-helper/releases/latest");
-                        }
-
-                        ui.heading(&gs.character.name.clone());
-
-                        ui.label(format!(
-                            "Mushrooms: {}",
-                            gs.character.mushrooms
-                        ));
-                        ui.label(format!("Rank: {}", gs.character.rank));
-                        ui.label(format!(
-                            "Items found: {}",
-                            gs.unlocks.scrapbook_count.unwrap_or_default()
-                        ));
-
-                        ui.label(format!(
-                            "Pages fetched: {}",
-                            PAGE_POS.fetch_add(0, Ordering::SeqCst)
-                        ));
-
-                        ui.label(format!(
-                            "Fetched {}/{} players",
-                            FETCHED_PLAYERS.fetch_add(0, Ordering::SeqCst),
-                            TOTAL_PLAYERS.fetch_add(0, Ordering::SeqCst)
-                        ));
-
-                        if let Some(time) = last_response.time {
-                            ui.add_space(10.0);
-                            ui.label(
-                                time.naive_local()
-                                    .format("%Y-%m-%d %H:%M")
-                                    .to_string(),
-                            )
-                            .on_hover_text(
-                                "The current HoF data was fetched at this \
-                                 point in time",
-                            );
-                        }
-
-                        ui.add_space(10.0);
-
-                        ui.group(|ui| {
-                            egui::Grid::new("hof_grid").show(ui, |ui| {
-                                ui.label("Active crawling threads")
-                                    .on_hover_text(
-                                        "The amount of background accounts \
-                                         currently working on downloading the \
-                                         HoF",
-                                    );
-                                if ui
-                                    .add(
-                                        egui::DragValue::new(active)
-                                            .clamp_range(0..=10),
-                                    )
-                                    .changed()
-                                {
-                                    sender
-                                        .send(ObserverCommand::SetAccounts(
-                                            *active,
-                                        ))
-                                        .unwrap();
-                                };
-                                ui.end_row();
-                                ui.label("Max target level").on_hover_text(
-                                    "The highest level of players, that will \
-                                     be displayed. Also effects the \
-                                     auto-battle targets",
-                                );
-                                if ui
-                                    .add(
-                                        egui::DragValue::new(max_level)
-                                            .clamp_range(1..=800),
-                                    )
-                                    .changed()
-                                {
-                                    sender
-                                        .send(ObserverCommand::SetMaxLevel(
-                                            *max_level,
-                                        ))
-                                        .unwrap();
-                                }
-
-                                ui.end_row();
-                            })
-                        });
-
-                        ui.add_space(10.0);
-
-                        let mut free_fight_possible = false;
-                        ui.label(match gs.arena.next_free_fight {
-                            Some(t) if t > Local::now() => format!(
-                                "Next free fight: {:?} sec",
-                                (t - Local::now()).num_seconds()
-                            ),
-                            _ => {
-                                free_fight_possible = true;
-                                "Free fight possible".to_string()
-                            }
-                        });
-
-                        ui.checkbox(auto_battle, "Auto Battle").on_hover_text(
-                            "Automatically battles the best target as soon, \
-                             as the 10 minute timer for free arena battles \
-                             elapses.",
-                        );
-
-                        if let Some(last) = last_player_response {
-                            ui.label(match last {
-                                PlayerInfo::Victory { name, .. } => {
-                                    format!("Won the last fight against {name}")
-                                }
-                                PlayerInfo::Lost { name } => {
-                                    format!(
-                                        "Lost the last fight against {name}"
-                                    )
-                                }
-                            });
-                        }
-                        if *auto_battle && free_fight_possible {
-                            if let Some((_, info)) =
-                                last_response.best_players.first()
-                            {
-                                player_sender
-                                    .send(PlayerCommand::Attack {
-                                        name: info.name.clone(),
-                                        uid: info.uid,
-                                        mush: false,
-                                    })
-                                    .unwrap();
-                                gs.arena.next_free_fight = Some(
-                                    Local::now() + Duration::from_secs(60 * 10),
-                                );
-                            }
-                        }
-
-                        ui.add_space(20.0);
-
-                        if ui
-                            .button("Backup HoF")
-                            .on_hover_text(
-                                "Exports the current crawling progress to a \
-                                 file in the current directory. This should \
-                                 be used instead of refetching the HoF \
-                                 multiple times for the same server",
-                            )
-                            .clicked()
-                        {
-                            sender.send(ObserverCommand::Export).unwrap();
-                        }
-
-                        if ui
-                            .button("Restore HoF")
-                            .on_hover_text(
-                                "Loads the previously saved crawling data to \
-                                 a file in the current directory",
-                            )
-                            .clicked()
-                        {
-                            sender.send(ObserverCommand::Restore).unwrap();
-                        }
-
-                        if ui
-                            .button("Clear HoF")
-                            .on_hover_text(
-                                "Clears all data fetched from the HoF (in \
-                                 case you want to start from 0)",
-                            )
-                            .clicked()
-                        {
-                            sender.send(ObserverCommand::Clear).unwrap();
-                        }
-
-                        if ui
-                            .button("Export Player")
-                            .on_hover_text(
-                                "Exports information about the current player \
-                                 into a json file in the current directory",
-                            )
-                            .clicked()
-                        {
-                            _ = std::fs::write(
-                                format!("{}.player", &gs.character.name),
-                                serde_json::to_string_pretty(&gs.clone())
-                                    .unwrap(),
-                            );
-                        }
-                        if ui
-                            .button("Copy best targets")
-                            .on_hover_text(
-                                "Copy the optimal order to battle players \
-                                 into the clipboard. This can then be used in \
-                                 the mfbot",
-                            )
-                            .clicked()
-                        {
-                            ui.output_mut(|a| {
-                                a.copied_text =
-                                    last_response.target_list.clone()
-                            });
-                        }
-                    });
-                });
-                CentralPanel::default().show(ctx, |ui| {
-                    ui.set_width(ui.available_width());
-                    ui.vertical_centered(|ui| {
-                        ui.set_width(ui.available_width());
-                        ui.heading("Possible Targets");
-                        egui::ScrollArea::vertical().show(ui, |ui| {
-                            ui.set_width(ui.available_width());
-
-                            egui::Grid::new("hof_grid")
-                                .num_columns(4)
-                                .striped(true)
-                                .spacing((20.0, 10.0))
-                                .min_col_width(20.0)
-                                .show(ui, |ui| {
-                                    ui.label("Fight");
-                                    ui.label("Missing");
-                                    ui.label("Level");
-                                    // No chance in hell, this is how you are
-                                    // supposed to do this
-                                    ui.label(format!(
-                                        "Name{}",
-                                        vec![' '; 10_000]
-                                            .into_iter()
-                                            .collect::<String>()
-                                    ));
-                                    ui.end_row();
-                                    for (count, info) in
-                                        &last_response.best_players
-                                    {
-                                        if ui.button("Fight").clicked() {
-                                            player_sender
-                                                .send(PlayerCommand::Attack {
-                                                    name: info.name.clone(),
-                                                    uid: info.uid,
-                                                    mush: true,
-                                                })
-                                                .unwrap();
-                                        }
-                                        ui.label(count.to_string());
-                                        ui.label(info.level.to_string());
-                                        ui.label(&info.name);
-                                        ui.end_row();
-                                    }
-                                });
-                        });
-                    });
-                });
-            }
-        });
-
-        if let Some(stage) = new_stage {
-            *self = stage;
-        }
-    }
-}
-
-fn login_sso(
-    sso_name: &str,
-    sso_password: &str,
-    new_stage: &mut Option<Stage>,
-) {
-    let arc = Arc::new(Mutex::new(None));
-    let output = arc.clone();
-
-    let username = sso_name.to_string();
-    let password = sso_password.to_string();
-
-    let handle = tokio::spawn(async move {
-        let account = match SFAccount::login(username, password).await {
-            Ok(account) => account,
-            Err(err) => {
-                *output.lock().unwrap() = Some(Err(err));
-                return;
-            }
-        };
-
-        match account.characters().await {
-            Ok(character) => {
-                let vec = character.into_iter().flatten().collect::<Vec<_>>();
-                *output.lock().unwrap() = Some(Ok(vec));
-            }
-            Err(err) => {
-                *output.lock().unwrap() = Some(Err(err));
-            }
-        };
-        let c = CONTEXT.get().unwrap();
-        c.request_repaint();
+    let mut settings = Settings::default();
+    settings.window.min_size = Some(iced::Size {
+        width: 700.0,
+        height: 400.0,
     });
 
-    *new_stage = Some(Stage::SSOLoggingIn(arc, handle));
+    let raw_img = include_bytes!("../assets/icon.ico");
+    let img =
+        image::load_from_memory_with_format(raw_img, image::ImageFormat::Ico)
+            .ok();
+    if let Some(img) = img {
+        let height = img.height();
+        let width = img.width();
+        let icon =
+            iced::window::icon::from_rgba(img.into_bytes(), width, height).ok();
+        settings.window.icon = icon;
+    }
+    debug!("Setup window");
+
+    Helper::run(settings)
 }
 
-fn login_normal(
-    server: &str,
-    name: &str,
-    password: &str,
-    new_stage: &mut Option<Stage>,
-    error: &mut Option<String>,
-) {
-    let Some(sc) = ServerConnection::new(server) else {
-        *error = Some("Invalid Server URL".to_string());
-        return;
-    };
+struct Helper {
+    servers: Servers,
+    current_view: View,
+    login_state: LoginState,
+    config: Config,
+    should_update: bool,
+}
 
-    let session =
-        sf_api::session::CharacterSession::new(name, password, sc.clone());
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+enum View {
+    Account {
+        ident: AccountIdent,
+        page: AccountPage,
+    },
+    Overview,
+    Login,
+    Settings,
+}
 
-    let arc = Arc::new(Mutex::new(None));
-    let arc2 = arc.clone();
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+enum AccountPage {
+    Scrapbook,
+    Underworld,
+}
 
-    let handle = tokio::spawn(async move {
-        let mut session = session;
-        let res = session.login().await;
-        *arc2.lock().unwrap() = Some((res, session));
-        let c = CONTEXT.get().unwrap();
-        c.request_repaint();
-    });
-    *new_stage = Some(Stage::LoggingIn(arc, handle, sc));
+fn get_server_code(server: &str) -> String {
+    let server = server.trim_start_matches("https:");
+    let server = server.trim_start_matches("http:");
+    let server = server.replace('/', "");
+    let mut parts = server.split('.');
+    let a = parts.next();
+    _ = parts.next();
+    let b = parts.next();
+
+    match (a, b) {
+        (Some(a), Some(b)) => {
+            format!("{a}.{b}")
+        }
+        _ => String::new(),
+    }
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
@@ -761,4 +123,616 @@ pub struct CharacterInfo {
     name: String,
     uid: u32,
     level: u16,
+    #[serde(skip)]
+    stats: Option<u32>,
+    #[serde(skip)]
+    fetch_date: Option<NaiveDate>,
+}
+
+impl CharacterInfo {
+    pub fn is_old(&self) -> bool {
+        self.fetch_date.unwrap_or_default() < Utc::now().date_naive()
+    }
+}
+
+impl PartialOrd for CharacterInfo {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for CharacterInfo {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        match self.level.cmp(&other.level) {
+            core::cmp::Ordering::Equal => {}
+            ord => return ord.reverse(),
+        }
+        match self.name.cmp(&other.name) {
+            core::cmp::Ordering::Equal => {}
+            ord => return ord,
+        }
+        self.uid.cmp(&other.uid)
+    }
+}
+
+impl Application for Helper {
+    type Executor = executor::Default;
+
+    type Message = Message;
+
+    type Theme = Theme;
+
+    type Flags = ();
+
+    fn new(_flags: Self::Flags) -> (Self, iced::Command<Self::Message>) {
+        let config = match Config::restore() {
+            Ok(c) => c,
+            Err(_) => {
+                let def = Config::default();
+                _ = def.write();
+                def
+            }
+        };
+        let helper = Helper {
+            servers: Default::default(),
+            login_state: LoginState {
+                login_typ: if config.accounts.is_empty() {
+                    LoginType::Regular
+                } else {
+                    LoginType::Saved
+                },
+                name: String::new(),
+                password: String::new(),
+                server: "f1.sfgame.net".to_string(),
+                error: None,
+                remember_me: true,
+                active_sso: vec![],
+                import_que: vec![],
+                google_sso: Arc::new(Mutex::new(SSOStatus::Initializing)),
+                steam_sso: Arc::new(Mutex::new(SSOStatus::Initializing)),
+            },
+            config,
+            current_view: View::Login,
+            should_update: false,
+        };
+
+        let fetch_update =
+            Command::perform(async { check_update().await }, |res| {
+                Message::UpdateResult(res.unwrap_or_default())
+            });
+
+        (helper, fetch_update)
+    }
+
+    fn theme(&self) -> Theme {
+        self.config.theme.theme()
+    }
+
+    fn title(&self) -> String {
+        format!("Scrapbook Helper v{}", env!("CARGO_PKG_VERSION"))
+    }
+
+    fn update(
+        &mut self,
+        message: Self::Message,
+    ) -> iced::Command<Self::Message> {
+        self.handle_msg(message)
+    }
+
+    fn view(
+        &self,
+    ) -> iced::Element<'_, Self::Message, Self::Theme, iced::Renderer> {
+        self.view_current_page()
+    }
+
+    fn subscription(&self) -> Subscription<Self::Message> {
+        let mut subs = vec![];
+
+        for (server_id, server) in &self.servers.0 {
+            for acc in server.accounts.values() {
+                let subscription = subscription::unfold(
+                    (acc.ident, 777),
+                    AutoPoll {
+                        player_status: acc.status.clone(),
+                        ident: acc.ident,
+                    },
+                    move |a: AutoPoll| async move { (a.check().await, a) },
+                );
+                subs.push(subscription);
+
+                let Some(si) = &acc.scrapbook_info else {
+                    continue;
+                };
+
+                if !si.auto_battle {
+                    continue;
+                }
+                let subscription = subscription::unfold(
+                    (acc.ident, 69),
+                    AutoAttackChecker {
+                        player_status: acc.status.clone(),
+                        ident: acc.ident,
+                    },
+                    move |a: AutoAttackChecker| async move { (a.check().await, a) },
+                );
+                subs.push(subscription);
+            }
+
+            if let CrawlingStatus::Crawling {
+                crawling_session,
+                threads,
+                que,
+                ..
+            } = &server.crawling
+            {
+                let Some(session) = crawling_session else {
+                    continue;
+                };
+                for thread in 0..*threads {
+                    let subscription = subscription::unfold(
+                        (thread, server.ident.id),
+                        Crawler {
+                            que: que.clone(),
+                            state: session.clone(),
+                            server_id: *server_id,
+                        },
+                        move |mut a: Crawler| async move { (a.crawl().await, a) },
+                    );
+                    subs.push(subscription);
+                }
+            }
+        }
+
+        for (arc, prov) in [
+            (&self.login_state.steam_sso, SSOProvider::Steam),
+            (&self.login_state.google_sso, SSOProvider::Google),
+        ] {
+            let arc = arc.clone();
+            let subscription = subscription::unfold(
+                prov,
+                SSOValidator {
+                    status: arc,
+                    provider: prov,
+                },
+                move |a: SSOValidator| async move {
+                    let msg = match a.check().await {
+                        Ok(Some((chars, name))) => {
+                            let chars = chars.into_iter().flatten().collect();
+                            Message::SSOSuccess {
+                                auth_name: name,
+                                chars,
+                                provider: prov,
+                            }
+                        }
+                        Ok(None) => Message::SSORetry,
+                        Err(e) => Message::SSOAuthError(e.to_string()),
+                    };
+
+                    (msg, a)
+                },
+            );
+            subs.push(subscription);
+        }
+
+        Subscription::batch(subs)
+    }
+}
+
+impl Helper {
+    fn has_accounts(&self) -> bool {
+        self.servers.0.iter().any(|a| !a.1.accounts.is_empty())
+    }
+
+    fn update_best(
+        &mut self,
+        ident: AccountIdent,
+        keep_recent: bool,
+    ) -> Command<Message> {
+        trace!("Updating best for {ident:?} - keep recent: {keep_recent}");
+        let Some(server) = self.servers.get_mut(&ident.server_id) else {
+            return Command::none();
+        };
+
+        let CrawlingStatus::Crawling {
+            que,
+            threads,
+            player_info,
+            equipment,
+            naked,
+            ..
+        } = &mut server.crawling
+        else {
+            return Command::none();
+        };
+
+        let Some(account) = server.accounts.get_mut(&ident.account) else {
+            return Command::none();
+        };
+
+        if keep_recent
+            && account.last_updated + Duration::from_millis(500) >= Local::now()
+        {
+            return Command::none();
+        }
+
+        let mut has_old = false;
+
+        let mut lock = que.lock().unwrap();
+
+        if let Some(si) = &mut account.scrapbook_info {
+            let per_player_counts = calc_per_player_count(
+                player_info, equipment, &si.scrapbook.items, si,
+            );
+            let best_players = find_best(&per_player_counts, player_info, 20);
+
+            si.best = best_players;
+
+            for target in &si.best {
+                if target.is_old()
+                    && !lock.todo_accounts.contains(&target.info.name)
+                    && !lock.invalid_accounts.contains(&target.info.name)
+                    && !lock.in_flight_accounts.contains(&target.info.name)
+                {
+                    has_old = true;
+                    lock.todo_accounts.push(target.info.name.to_string())
+                }
+            }
+        };
+
+        if let Some(ui) = &mut account.underworld_info {
+            ui.best.clear();
+            'a: for (_, players) in naked.range(..=ui.max_level).rev() {
+                for player in players.iter() {
+                    if ui.best.len() >= 20 {
+                        break 'a;
+                    }
+                    let Some(info) = player_info.get(player) else {
+                        continue;
+                    };
+                    if info.is_old()
+                        && !lock.todo_accounts.contains(&info.name)
+                        && !lock.invalid_accounts.contains(&info.name)
+                        && !lock.in_flight_accounts.contains(&info.name)
+                    {
+                        has_old = true;
+                        lock.todo_accounts.push(info.name.to_string())
+                    }
+                    ui.best.push(info.to_owned());
+                }
+            }
+        }
+        drop(lock);
+
+        account.last_updated = Local::now();
+
+        if has_old && *threads == 0 {
+            return server.set_threads(1, &self.config.base_name);
+        }
+        Command::none()
+    }
+}
+
+pub fn calc_per_player_count(
+    player_info: &HashMap<
+        u32,
+        CharacterInfo,
+        std::hash::BuildHasherDefault<nohash_hasher::NoHashHasher<u32>>,
+    >,
+    equipment: &HashMap<
+        EquipmentIdent,
+        HashSet<u32, ahash::RandomState>,
+        ahash::RandomState,
+    >,
+    scrapbook: &HashSet<EquipmentIdent>,
+    si: &ScrapbookInfo,
+) -> IntMap<u32, usize> {
+    let mut per_player_counts = IntMap::default();
+    per_player_counts.reserve(player_info.len());
+
+    for (eq, players) in equipment.iter() {
+        if scrapbook.contains(eq) || eq.model_id >= 100 {
+            continue;
+        }
+        for player in players.iter() {
+            *per_player_counts.entry(*player).or_insert(0) += 1;
+        }
+    }
+
+    per_player_counts.retain(|a, _| {
+        let Some(info) = player_info.get(a) else {
+            return false;
+        };
+
+        if info.level > si.max_level {
+            return false;
+        }
+
+        if let Some((_, lost)) = si.blacklist.get(&info.uid) {
+            if *lost >= 5 {
+                return false;
+            }
+        }
+        true
+    });
+    per_player_counts
+}
+
+macro_rules! impl_unique_id {
+    ($type:ty) => {
+        impl $type {
+            fn new() -> Self {
+                static COUNTER: AtomicU64 = AtomicU64::new(0);
+                Self(COUNTER.fetch_add(1, std::sync::atomic::Ordering::SeqCst))
+            }
+        }
+    };
+}
+
+#[derive(Debug, Hash, PartialEq, Eq, Copy, Clone)]
+struct ServerID(u64);
+
+#[derive(Debug, Hash, PartialEq, Eq, Copy, Clone)]
+pub struct QueID(u64);
+impl_unique_id!(QueID);
+
+#[derive(Debug, Hash, PartialEq, Eq, Copy, Clone)]
+struct AccountID(u64);
+impl_unique_id!(AccountID);
+
+#[derive(Debug, Hash, PartialEq, Eq, Copy, Clone)]
+pub struct AccountIdent {
+    server_id: ServerID,
+    account: AccountID,
+}
+
+impl ServerInfo {
+    pub fn set_threads(
+        &mut self,
+        new_count: usize,
+        base_name: &str,
+    ) -> Command<Message> {
+        let CrawlingStatus::Crawling {
+            threads,
+            crawling_session,
+            ..
+        } = &mut self.crawling
+        else {
+            return Command::none();
+        };
+
+        let not_logged_in = *threads == 0 && crawling_session.is_none();
+
+        *threads = new_count;
+
+        let base_name = base_name.to_string();
+        let con = self.connection.clone();
+        let id = self.ident.id;
+
+        if not_logged_in {
+            Command::perform(
+                CrawlerState::try_login(base_name, con),
+                move |res| match res {
+                    Ok(state) => Message::CrawlerStartup {
+                        server: id,
+                        state: Arc::new(state),
+                    },
+                    Err(err) => Message::CrawlerDied {
+                        server: id,
+                        error: err.to_string(),
+                    },
+                },
+            )
+        } else {
+            Command::none()
+        }
+    }
+}
+
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone)]
+pub struct AttackTarget {
+    missing: usize,
+    info: CharacterInfo,
+}
+impl AttackTarget {
+    fn is_old(&self) -> bool {
+        self.info.is_old()
+    }
+}
+
+fn find_best(
+    per_player_counts: &IntMap<u32, usize>,
+    player_info: &IntMap<u32, CharacterInfo>,
+    max_out: usize,
+) -> Vec<AttackTarget> {
+    // Prune the counts to make computation faster
+    let mut max = 1;
+    let mut counts = [(); 10].map(|_| vec![]);
+    for (player, count) in per_player_counts.iter().map(|a| (*a.0, *a.1)) {
+        if max_out == 1 && count < max || count == 0 {
+            continue;
+        }
+        max = max.max(count);
+        counts[(count - 1).clamp(0, 9)].push(player);
+    }
+
+    let mut best_players = Vec::new();
+    for (count, players) in counts.iter().enumerate().rev() {
+        best_players.extend(
+            players.iter().flat_map(|a| player_info.get(a)).map(|a| {
+                AttackTarget {
+                    missing: count + 1,
+                    info: a.to_owned(),
+                }
+            }),
+        );
+        if best_players.len() >= max_out {
+            break;
+        }
+    }
+    best_players.sort_by(|a, b| b.cmp(a));
+    best_players.truncate(max_out);
+
+    best_players
+}
+
+fn top_bar(
+    center: Element<Message>,
+    back: Option<Message>,
+) -> Element<Message> {
+    let back_button: Element<Message> = if let Some(back) = back {
+        button("Back")
+            .padding(4)
+            .style(theme::Button::Destructive)
+            .on_press(back)
+            .into()
+    } else {
+        text("").into()
+    };
+
+    let back_button = container(back_button).width(Length::Fixed(100.0));
+
+    let settings = container(
+        button("Settings")
+            .padding(4)
+            .on_press(Message::ViewSettings),
+    )
+    .width(Length::Fixed(100.0))
+    .align_x(iced::alignment::Horizontal::Right);
+
+    row!(
+        back_button,
+        horizontal_space(),
+        center,
+        horizontal_space(),
+        settings
+    )
+    .align_items(Alignment::Center)
+    .padding(15)
+    .into()
+}
+
+pub fn handle_new_char_info(
+    char: CharacterInfo,
+    equipment: &mut HashMap<
+        EquipmentIdent,
+        HashSet<u32, ahash::RandomState>,
+        ahash::RandomState,
+    >,
+    player_info: &mut IntMap<u32, CharacterInfo>,
+    naked: &mut BTreeMap<u16, IntSet<u32>>,
+) {
+    let player_entry = player_info.entry(char.uid);
+
+    const EQ_CUTOFF: usize = 4;
+
+    match player_entry {
+        Entry::Occupied(mut old) => {
+            // We have already seen this player. We have to remove the old info
+            // and add the updated info
+            let old_info = old.get();
+            for eq in &old_info.equipment {
+                if let Some(x) = equipment.get_mut(eq) {
+                    x.remove(&old_info.uid);
+                }
+            }
+            for eq in char.equipment.clone() {
+                equipment
+                    .entry(eq)
+                    .and_modify(|a| {
+                        a.insert(char.uid);
+                    })
+                    .or_insert_with(|| {
+                        HashSet::from_iter([char.uid].into_iter())
+                    });
+            }
+            if old_info.equipment.len() < EQ_CUTOFF {
+                naked.entry(old_info.level).and_modify(|a| {
+                    a.remove(&old_info.uid);
+                });
+            }
+
+            if char.equipment.len() < EQ_CUTOFF {
+                naked.entry(char.level).or_default().insert(char.uid);
+            }
+            old.insert(char);
+        }
+        Entry::Vacant(v) => {
+            for eq in char.equipment.clone() {
+                equipment
+                    .entry(eq)
+                    .and_modify(|a| {
+                        a.insert(char.uid);
+                    })
+                    .or_insert_with(|| {
+                        HashSet::from_iter([char.uid].into_iter())
+                    });
+            }
+            if char.equipment.len() < EQ_CUTOFF && char.level >= 100 {
+                naked.entry(char.level).or_default().insert(char.uid);
+            }
+            v.insert(char);
+        }
+    }
+}
+
+fn get_log_config() -> log4rs::Config {
+    let pattern = PatternEncoder::new(
+        "{d(%Y-%m-%d %H:%M:%S)} | {({l}):5.5} | {M}:{L} | {m}{n}",
+    );
+    let stderr = ConsoleAppender::builder()
+        .target(Target::Stderr)
+        .encoder(Box::new(pattern.clone()))
+        .build();
+
+    let logfile = FileAppender::builder()
+        .encoder(Box::new(pattern.clone()))
+        .build("helper.log")
+        .unwrap();
+
+    log4rs::Config::builder()
+        .appender(Appender::builder().build("logfile", Box::new(logfile)))
+        .appender(Appender::builder().build("stderr", Box::new(stderr)))
+        .logger(
+            Logger::builder()
+                .appender("logfile")
+                .build("sf_scrapbook_helper", log::LevelFilter::Debug),
+        )
+        .logger(
+            Logger::builder()
+                .appender("logfile")
+                .build("sf_api", log::LevelFilter::Warn),
+        )
+        .build(
+            Root::builder()
+                .appender("stderr")
+                .build(log::LevelFilter::Error),
+        )
+        .unwrap()
+}
+
+async fn check_update() -> Result<bool, Box<dyn std::error::Error>> {
+    let client = reqwest::ClientBuilder::new()
+        .user_agent("sf-scrapbook-helper")
+        .build()?;
+    let url =
+        "https://api.github.com/repos/the-marenga/sf-scrapbook-helper/tags";
+    let resp = client.get(url).send().await?;
+
+    let text = resp.text().await?;
+
+    #[derive(Debug, Deserialize)]
+    struct GitTag {
+        name: String,
+    }
+
+    let tags: Vec<GitTag> = serde_json::from_str(&text)?;
+
+    let mut should_update = false;
+    if let Some(newest) = tags.first() {
+        let git_version =
+            semver::Version::parse(newest.name.trim_start_matches('v'))?;
+        let own_version = semver::Version::parse(env!("CARGO_PKG_VERSION"))?;
+        should_update = own_version < git_version;
+    }
+    Ok(should_update)
 }

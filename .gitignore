@@ -1,4 +1,5 @@
 /target
-*.player
-*.hof
 *.zhof
+helper.toml
+.DS_Store
+*.log
