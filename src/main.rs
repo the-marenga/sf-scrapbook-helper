@@ -469,14 +469,14 @@ macro_rules! impl_unique_id {
 }
 
 #[derive(Debug, Hash, PartialEq, Eq, Copy, Clone)]
-struct ServerID(u64);
+pub struct ServerID(u64);
 
 #[derive(Debug, Hash, PartialEq, Eq, Copy, Clone)]
 pub struct QueID(u64);
 impl_unique_id!(QueID);
 
 #[derive(Debug, Hash, PartialEq, Eq, Copy, Clone)]
-struct AccountID(u64);
+pub struct AccountID(u64);
 impl_unique_id!(AccountID);
 
 #[derive(Debug, Hash, PartialEq, Eq, Copy, Clone)]
