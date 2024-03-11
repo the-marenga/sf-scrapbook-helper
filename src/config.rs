@@ -8,6 +8,8 @@ pub struct Config {
     pub theme: AvailableTheme,
     pub base_name: String,
     pub auto_fetch_newest: bool,
+    #[serde(default)]
+    pub auto_poll: bool,
     #[serde(default = "default_threads")]
     pub max_threads: usize,
 }
@@ -35,6 +37,7 @@ impl Default for Config {
             base_name,
             auto_fetch_newest: true,
             max_threads: 10,
+            auto_poll: false,
         }
     }
 }
