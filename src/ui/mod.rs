@@ -155,6 +155,10 @@ impl Helper {
         )
         .on_toggle(Message::SetAutoFetch);
 
+        let auto_poll =
+            checkbox("Keep characters logged in", self.config.auto_poll)
+                .on_toggle(Message::SetAutoPoll);
+
         let max_threads =
             number_input(self.config.max_threads, 50, Message::SetMaxThreads);
 
@@ -162,9 +166,10 @@ impl Helper {
             .width(Length::Fill)
             .align_items(Alignment::Center);
 
-        let settings_column = column!(theme_row, auto_fetch_hof, max_threads)
-            .width(Length::Fixed(300.0))
-            .spacing(20);
+        let settings_column =
+            column!(theme_row, auto_fetch_hof, auto_poll, max_threads)
+                .width(Length::Fixed(300.0))
+                .spacing(20);
 
         column!(top_row, settings_column)
             .spacing(20)

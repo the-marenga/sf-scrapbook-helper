@@ -230,15 +230,17 @@ impl Application for Helper {
 
         for (server_id, server) in &self.servers.0 {
             for acc in server.accounts.values() {
-                let subscription = subscription::unfold(
-                    (acc.ident, 777),
-                    AutoPoll {
-                        player_status: acc.status.clone(),
-                        ident: acc.ident,
-                    },
-                    move |a: AutoPoll| async move { (a.check().await, a) },
-                );
-                subs.push(subscription);
+                if self.config.auto_poll {
+                    let subscription = subscription::unfold(
+                        (acc.ident, 777),
+                        AutoPoll {
+                            player_status: acc.status.clone(),
+                            ident: acc.ident,
+                        },
+                        move |a: AutoPoll| async move { (a.check().await, a) },
+                    );
+                    subs.push(subscription);
+                }
 
                 let Some(si) = &acc.scrapbook_info else {
                     continue;

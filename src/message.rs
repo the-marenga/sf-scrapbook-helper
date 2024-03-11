@@ -70,6 +70,7 @@ pub enum Message {
     SSOAuthError(String),
     SetMaxThreads(usize),
     SetAutoFetch(bool),
+    SetAutoPoll(bool),
     ViewSubPage {
         player: AccountIdent,
         page: AccountPage,
@@ -1343,6 +1344,10 @@ impl Helper {
             }
             Message::UpdateResult(should_update) => {
                 self.should_update = should_update;
+            }
+            Message::SetAutoPoll(new_val) => {
+                self.config.auto_poll = new_val;
+                _ = self.config.write();
             }
         }
         Command::none()
