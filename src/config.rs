@@ -2,6 +2,8 @@ use iced::Theme;
 use serde::{Deserialize, Serialize};
 use sf_api::session::PWHash;
 
+use crate::ui::BestSort;
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Config {
     pub accounts: Vec<CharacterConfig>,
@@ -12,6 +14,8 @@ pub struct Config {
     pub auto_poll: bool,
     #[serde(default = "default_threads")]
     pub max_threads: usize,
+    #[serde(default)]
+    pub default_best_sort: BestSort,
 }
 
 fn default_threads() -> usize {
@@ -38,6 +42,7 @@ impl Default for Config {
             auto_fetch_newest: true,
             max_threads: 10,
             auto_poll: false,
+            default_best_sort: BestSort::Level,
         }
     }
 }

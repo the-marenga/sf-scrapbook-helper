@@ -483,7 +483,7 @@ impl Helper {
             server_id: server_ident.id,
             account: account_id,
         };
-        let info = AccountInfo::new(&name, auth, account_ident);
+        let info = AccountInfo::new(&name, auth, account_ident, &self.config);
         let server =
             self.servers.get_or_insert_default(server_ident, connection);
 
