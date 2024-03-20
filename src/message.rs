@@ -13,7 +13,7 @@ use tokio::time::sleep;
 use self::{
     backup::{get_newest_backup, restore_backup, RestoreData, ZHofBackup},
     login::{SSOIdent, SSOLogin, SSOLoginStatus},
-    ui::underworld::LureTarget,
+    ui::{underworld::LureTarget, BestSort},
 };
 use crate::{
     crawler::CrawlerState,
@@ -23,6 +23,11 @@ use crate::{
 
 #[derive(Debug, Clone)]
 pub enum Message {
+    ChangeSort {
+        ident: AccountIdent,
+        new: BestSort,
+    },
+    ChangeDefaultSort(BestSort),
     UpdateResult(bool),
     PlayerSetMaxUndergroundLvl {
         ident: AccountIdent,
@@ -398,7 +403,7 @@ impl Helper {
                     return Command::none();
                 };
 
-                player.scrapbook_info = ScrapbookInfo::new(&gs);
+                player.scrapbook_info = ScrapbookInfo::new(&gs, &self.config);
 
                 if remember {
                     match &player.auth {
@@ -430,7 +435,7 @@ impl Helper {
                 let total_players = gs.other_players.total_player;
                 let total_pages = (total_players as usize).div_ceil(PER_PAGE);
 
-                player.scrapbook_info = ScrapbookInfo::new(&gs);
+                player.scrapbook_info = ScrapbookInfo::new(&gs, &self.config);
                 player.underworld_info = UnderworldInfo::new(&gs);
 
                 *player.status.lock().unwrap() =
@@ -1348,6 +1353,24 @@ impl Helper {
             Message::SetAutoPoll(new_val) => {
                 self.config.auto_poll = new_val;
                 _ = self.config.write();
+            }
+            Message::ChangeDefaultSort(new) => {
+                self.config.default_best_sort = new;
+                _ = self.config.write();
+            }
+            Message::ChangeSort { ident, new } => {
+                let Some(server) = self.servers.get_mut(&ident.server_id)
+                else {
+                    return Command::none();
+                };
+                let Some(account) = server.accounts.get_mut(&ident.account)
+                else {
+                    return Command::none();
+                };
+
+                account.best_sort = new;
+
+                return self.update_best(ident, false);
             }
         }
         Command::none()
