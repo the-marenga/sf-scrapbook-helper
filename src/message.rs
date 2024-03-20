@@ -23,6 +23,10 @@ use crate::{
 
 #[derive(Debug, Clone)]
 pub enum Message {
+    ChangeSort {
+        ident: AccountIdent,
+        new: BestSort,
+    },
     ChangeDefaultSort(BestSort),
     UpdateResult(bool),
     PlayerSetMaxUndergroundLvl {
@@ -1353,6 +1357,20 @@ impl Helper {
             Message::ChangeDefaultSort(new) => {
                 self.config.default_best_sort = new;
                 _ = self.config.write();
+            }
+            Message::ChangeSort { ident, new } => {
+                let Some(server) = self.servers.get_mut(&ident.server_id)
+                else {
+                    return Command::none();
+                };
+                let Some(account) = server.accounts.get_mut(&ident.account)
+                else {
+                    return Command::none();
+                };
+
+                account.best_sort = new;
+
+                return self.update_best(ident, false);
             }
         }
         Command::none()

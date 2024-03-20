@@ -10,7 +10,9 @@ use iced::{
 };
 use iced_aw::number_input;
 
+use super::BestSort;
 use crate::{
+    config::Config,
     crawler::CrawlingOrder,
     message::Message,
     player::{AccountInfo, AccountStatus},
@@ -20,7 +22,7 @@ use crate::{
 pub fn view_scrapbook<'a>(
     server: &'a ServerInfo,
     player: &'a AccountInfo,
-    max_threads: usize,
+    config: &'a Config,
 ) -> Element<'a, Message> {
     let lock = player.status.lock().unwrap();
     let gs = match &*lock {
@@ -82,6 +84,21 @@ pub fn view_scrapbook<'a>(
     let max_lvl = row!(text("Max Level:"), horizontal_space(), max_lvl)
         .align_items(Alignment::Center);
     left_col = left_col.push(max_lvl);
+
+    let sort_picker = pick_list(
+        [BestSort::Level, BestSort::Attributes],
+        Some(player.best_sort),
+        move |nv| Message::ChangeSort {
+            ident: aid,
+            new: nv,
+        },
+    );
+
+    let sort_best = row!(text("Sort Best: "), horizontal_space(), sort_picker)
+        .width(Length::Fill)
+        .align_items(Alignment::Center);
+
+    left_col = left_col.push(sort_best);
 
     match &gs.arena.next_free_fight {
         Some(x) if *x >= Local::now() => {
@@ -151,12 +168,13 @@ pub fn view_scrapbook<'a>(
                 .height(Length::Fixed(10.0));
             left_col = left_col.push(progress);
 
-            let thread_num = number_input(*threads, max_threads, move |nv| {
-                Message::CrawlerSetThreads {
-                    server: sid,
-                    new_count: nv,
-                }
-            });
+            let thread_num =
+                number_input(*threads, config.max_threads, move |nv| {
+                    Message::CrawlerSetThreads {
+                        server: sid,
+                        new_count: nv,
+                    }
+                });
             let thread_num =
                 row!(text("Threads: "), horizontal_space(), thread_num)
                     .align_items(Alignment::Center);
