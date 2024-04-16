@@ -405,8 +405,8 @@ impl SSOValidator {
         &self,
     ) -> Result<Option<(Vec<Result<CharacterSession, SFError>>, String)>, SFError>
     {
+        sleep(Duration::from_millis(fastrand::u64(500..=1000))).await;
         let mut auth = SSOAuth::new(self.provider).await?;
-
         {
             *self.status.lock().unwrap() = SSOStatus::Waiting {
                 url: auth.auth_url().to_string(),

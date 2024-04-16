@@ -40,6 +40,7 @@ use player::{
 use serde::{Deserialize, Serialize};
 use server::{CrawlingStatus, ServerIdent, ServerInfo, Servers};
 use sf_api::{gamestate::unlockables::EquipmentIdent, sso::SSOProvider};
+use tokio::time::sleep;
 
 use crate::{
     config::{AccountCreds, AvailableTheme},
@@ -165,14 +166,7 @@ impl Application for Helper {
     type Flags = ();
 
     fn new(_flags: Self::Flags) -> (Self, iced::Command<Self::Message>) {
-        let config = match Config::restore() {
-            Ok(c) => c,
-            Err(_) => {
-                let def = Config::default();
-                _ = def.write();
-                def
-            }
-        };
+        let config = Config::restore().unwrap_or_default();
         let helper = Helper {
             servers: Default::default(),
             login_state: LoginState {
@@ -732,6 +726,7 @@ fn get_log_config() -> log4rs::Config {
 }
 
 async fn check_update() -> Result<bool, Box<dyn std::error::Error>> {
+    sleep(Duration::from_millis(fastrand::u64(500..=5000))).await;
     let client = reqwest::ClientBuilder::new()
         .user_agent("sf-scrapbook-helper")
         .build()?;
