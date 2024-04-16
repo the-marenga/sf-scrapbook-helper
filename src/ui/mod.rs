@@ -106,10 +106,11 @@ impl Helper {
 
         let middle = match page {
             AccountPage::Scrapbook => {
-                view_scrapbook(server, player, &self.config)
+                view_scrapbook(server, player, &self.config, &self.class_images)
             }
             AccountPage::Underworld => view_underworld(
                 server, player, self.config.max_threads, &self.config,
+                &self.class_images,
             ),
         };
 
@@ -168,6 +169,10 @@ impl Helper {
         )
         .on_toggle(Message::AdvancedLevelRestrict);
 
+        let show_class_icons =
+            checkbox("Show class icons", self.config.show_class_icons)
+                .on_toggle(Message::ShowClasses);
+
         let max_threads =
             number_input(self.config.max_threads, 50, Message::SetMaxThreads);
 
@@ -188,7 +193,7 @@ impl Helper {
 
         let settings_column = column!(
             theme_row, auto_fetch_hof, auto_poll, max_threads, sort_best,
-            crawling_restrict
+            crawling_restrict, show_class_icons
         )
         .width(Length::Fixed(300.0))
         .spacing(20);

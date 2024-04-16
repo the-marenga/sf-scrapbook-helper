@@ -18,10 +18,16 @@ pub struct Config {
     pub default_best_sort: BestSort,
     #[serde(default)]
     pub show_crawling_restrict: bool,
+    #[serde(default = "default_class_icons")]
+    pub show_class_icons: bool,
 }
 
 fn default_threads() -> usize {
     10
+}
+
+fn default_class_icons() -> bool {
+    true
 }
 
 impl Default for Config {
@@ -46,6 +52,7 @@ impl Default for Config {
             auto_poll: false,
             default_best_sort: BestSort::Level,
             show_crawling_restrict: false,
+            show_class_icons: true,
         }
     }
 }

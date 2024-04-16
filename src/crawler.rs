@@ -131,6 +131,7 @@ impl Crawler {
                             level: player.level,
                             fetch_date: Some(Utc::now().date_naive()),
                             stats: Some(stats),
+                            class: Some(player.class),
                         }
                     }
                     None => {
