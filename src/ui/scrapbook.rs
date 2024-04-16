@@ -5,7 +5,7 @@ use iced::{
     theme,
     widget::{
         button, checkbox, column, horizontal_space, pick_list, progress_bar,
-        row, scrollable, text, vertical_space,
+        row, scrollable, text, vertical_space, Image,
     },
     Alignment, Element, Length,
 };
@@ -18,12 +18,14 @@ use crate::{
     message::Message,
     player::{AccountInfo, AccountStatus},
     server::{CrawlingStatus, ServerInfo},
+    ClassImages,
 };
 
 pub fn view_scrapbook<'a>(
     server: &'a ServerInfo,
     player: &'a AccountInfo,
     config: &'a Config,
+    images: &'a ClassImages,
 ) -> Element<'a, Message> {
     let lock = player.status.lock().unwrap();
     let gs = match &*lock {
@@ -260,19 +262,19 @@ pub fn view_scrapbook<'a>(
     let mut name_bar = column!();
     name_bar = name_bar.push(row!(
         text("")
-            .width(Length::FillPortion(1))
+            .width(Length::FillPortion(5))
             .horizontal_alignment(Horizontal::Center),
         text("Missing")
-            .width(Length::FillPortion(1))
+            .width(Length::FillPortion(5))
             .horizontal_alignment(Horizontal::Center),
         text("Level")
-            .width(Length::FillPortion(1))
+            .width(Length::FillPortion(5))
             .horizontal_alignment(Horizontal::Center),
         text("Attributes")
-            .width(Length::FillPortion(1))
+            .width(Length::FillPortion(5))
             .horizontal_alignment(Horizontal::Center),
         text("Name")
-            .width(Length::FillPortion(3))
+            .width(Length::FillPortion(15))
             .horizontal_alignment(Horizontal::Left),
     ));
     let name_bar = scrollable(name_bar);
@@ -282,18 +284,35 @@ pub fn view_scrapbook<'a>(
         if banned.contains(&v.info.name) {
             continue;
         }
+        let mut target_ident = row!()
+            .align_items(Alignment::Start)
+            .spacing(5)
+            .width(Length::FillPortion(15));
+
+        if let Some(class) = v.info.class {
+            let img = Image::new(images.get_handle(class))
+                .width(Length::FillPortion(1))
+                .content_fit(iced::ContentFit::ScaleDown);
+            target_ident = target_ident.push(img);
+        }
+        target_ident = target_ident.push(
+            text(&v.info.name)
+                .width(Length::FillPortion(15))
+                .horizontal_alignment(Horizontal::Left),
+        );
+
         target_list = target_list.push(row!(
             column!(button("Attack").on_press(Message::PlayerAttack {
                 ident: player.ident,
                 target: v.to_owned()
             }))
             .align_items(Alignment::Center)
-            .width(Length::FillPortion(1)),
+            .width(Length::FillPortion(5)),
             text(v.missing)
-                .width(Length::FillPortion(1))
+                .width(Length::FillPortion(5))
                 .horizontal_alignment(Horizontal::Center),
             text(v.info.level)
-                .width(Length::FillPortion(1))
+                .width(Length::FillPortion(5))
                 .horizontal_alignment(Horizontal::Center),
             text(
                 v.info
@@ -301,11 +320,9 @@ pub fn view_scrapbook<'a>(
                     .map(|a| a.to_string())
                     .unwrap_or("???".to_string())
             )
-            .width(Length::FillPortion(1))
+            .width(Length::FillPortion(5))
             .horizontal_alignment(Horizontal::Center),
-            text(&v.info.name)
-                .width(Length::FillPortion(3))
-                .horizontal_alignment(Horizontal::Left),
+            target_ident,
         ));
     }
     let target_list = scrollable(target_list);

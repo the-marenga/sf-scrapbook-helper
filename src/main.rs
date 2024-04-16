@@ -39,7 +39,10 @@ use player::{
 };
 use serde::{Deserialize, Serialize};
 use server::{CrawlingStatus, ServerIdent, ServerInfo, Servers};
-use sf_api::{gamestate::unlockables::EquipmentIdent, sso::SSOProvider};
+use sf_api::{
+    gamestate::{character::Class, unlockables::EquipmentIdent},
+    sso::SSOProvider,
+};
 use tokio::time::sleep;
 
 use crate::{
@@ -82,6 +85,74 @@ struct Helper {
     login_state: LoginState,
     config: Config,
     should_update: bool,
+    class_images: ClassImages,
+}
+
+struct ClassImages {
+    assassin: iced::widget::image::Handle,
+    bard: iced::widget::image::Handle,
+    berserk: iced::widget::image::Handle,
+    battle_mage: iced::widget::image::Handle,
+    demon_hunter: iced::widget::image::Handle,
+    druid: iced::widget::image::Handle,
+    necromancer: iced::widget::image::Handle,
+    scout: iced::widget::image::Handle,
+    warrior: iced::widget::image::Handle,
+    mage: iced::widget::image::Handle,
+}
+
+macro_rules! load_class_image {
+    ($path:expr) => {{
+        let raw_img = include_bytes!($path);
+        let image = image::load_from_memory_with_format(
+            raw_img,
+            image::ImageFormat::WebP,
+        )
+        .unwrap();
+        iced::widget::image::Handle::from_pixels(
+            image.width(),
+            image.height(),
+            image.into_bytes(),
+        )
+    }};
+}
+
+impl ClassImages {
+    pub fn new() -> ClassImages {
+        ClassImages {
+            assassin: load_class_image!("../assets/classes/assassin.webp"),
+            bard: load_class_image!("../assets/classes/bard.webp"),
+            berserk: load_class_image!("../assets/classes/berserk.webp"),
+            demon_hunter: load_class_image!(
+                "../assets/classes/demon_hunter.webp"
+            ),
+            druid: load_class_image!("../assets/classes/druid.webp"),
+            necromancer: load_class_image!(
+                "../assets/classes/necromancer.webp"
+            ),
+            scout: load_class_image!("../assets/classes/scout.webp"),
+            warrior: load_class_image!("../assets/classes/warrior.webp"),
+            mage: load_class_image!("../assets/classes/mage.webp"),
+            battle_mage: load_class_image!(
+                "../assets/classes/battle_mage.webp"
+            ),
+        }
+    }
+
+    pub fn get_handle(&self, class: Class) -> iced::widget::image::Handle {
+        match class {
+            Class::Warrior => self.warrior.clone(),
+            Class::Mage => self.mage.clone(),
+            Class::Scout => self.scout.clone(),
+            Class::Assassin => self.assassin.clone(),
+            Class::BattleMage => self.battle_mage.clone(),
+            Class::Berserker => self.berserk.clone(),
+            Class::DemonHunter => self.demon_hunter.clone(),
+            Class::Druid => self.druid.clone(),
+            Class::Bard => self.bard.clone(),
+            Class::Necromancer => self.necromancer.clone(),
+        }
+    }
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
@@ -128,6 +199,8 @@ pub struct CharacterInfo {
     stats: Option<u32>,
     #[serde(skip)]
     fetch_date: Option<NaiveDate>,
+    #[serde(skip)]
+    class: Option<Class>,
 }
 
 impl CharacterInfo {
@@ -188,6 +261,7 @@ impl Application for Helper {
             config,
             current_view: View::Login,
             should_update: false,
+            class_images: ClassImages::new(),
         };
 
         let fetch_update =

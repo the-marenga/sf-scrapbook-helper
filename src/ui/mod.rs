@@ -106,7 +106,7 @@ impl Helper {
 
         let middle = match page {
             AccountPage::Scrapbook => {
-                view_scrapbook(server, player, &self.config)
+                view_scrapbook(server, player, &self.config, &self.class_images)
             }
             AccountPage::Underworld => view_underworld(
                 server, player, self.config.max_threads, &self.config,
