@@ -39,6 +39,9 @@ pub async fn restore_backup(
             order: CrawlingOrder::Random,
             export_time: None,
             characters: vec![],
+            lvl_skipped_accounts: Default::default(),
+            min_level: 0,
+            max_level: 9999,
         }),
     };
 
@@ -76,6 +79,9 @@ pub async fn restore_backup(
         invalid_accounts,
         order,
         naked,
+        lvl_skipped_accounts: new_info.lvl_skipped_accounts,
+        min_level: new_info.min_level,
+        max_level: new_info.max_level,
     }
 }
 
@@ -94,6 +100,9 @@ pub struct RestoreData {
     pub todo_accounts: Vec<String>,
     pub invalid_accounts: Vec<String>,
     pub order: CrawlingOrder,
+    pub lvl_skipped_accounts: BTreeMap<u32, Vec<String>>,
+    pub min_level: u32,
+    pub max_level: u32,
 }
 
 impl RestoreData {
@@ -110,6 +119,9 @@ impl RestoreData {
                 order: self.order,
                 in_flight_pages: vec![],
                 in_flight_accounts: vec![],
+                max_level: self.max_level,
+                min_level: self.min_level,
+                lvl_skipped_accounts: self.lvl_skipped_accounts,
             })),
             player_info: self.player_info,
             equipment: self.equipment,
@@ -170,6 +182,16 @@ pub struct ZHofBackup {
     pub order: CrawlingOrder,
     pub export_time: Option<DateTime<Utc>>,
     pub characters: Vec<CharacterInfo>,
+    #[serde(default)]
+    pub lvl_skipped_accounts: BTreeMap<u32, Vec<String>>,
+    #[serde(default)]
+    pub min_level: u32,
+    #[serde(default = "default_max_lvl")]
+    pub max_level: u32,
+}
+
+fn default_max_lvl() -> u32 {
+    9999
 }
 
 impl ZHofBackup {

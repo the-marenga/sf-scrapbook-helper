@@ -16,6 +16,8 @@ pub struct Config {
     pub max_threads: usize,
     #[serde(default)]
     pub default_best_sort: BestSort,
+    #[serde(default)]
+    pub show_crawling_restrict: bool,
 }
 
 fn default_threads() -> usize {
@@ -43,6 +45,7 @@ impl Default for Config {
             max_threads: 10,
             auto_poll: false,
             default_best_sort: BestSort::Level,
+            show_crawling_restrict: false,
         }
     }
 }

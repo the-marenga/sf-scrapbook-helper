@@ -23,9 +23,15 @@ use crate::{
 
 #[derive(Debug, Clone)]
 pub enum Message {
+    AdvancedLevelRestrict(bool),
     ChangeSort {
         ident: AccountIdent,
         new: BestSort,
+    },
+    CrawlerSetMinMax {
+        server: ServerID,
+        min: u32,
+        max: u32,
     },
     ChangeDefaultSort(BestSort),
     UpdateResult(bool),
@@ -1096,6 +1102,9 @@ impl Helper {
                     order: lock.order,
                     export_time: Some(Utc::now()),
                     characters: player_info.values().cloned().collect(),
+                    lvl_skipped_accounts: lock.lvl_skipped_accounts.clone(),
+                    min_level: lock.min_level,
+                    max_level: lock.max_level,
                 };
                 for acc in &lock.in_flight_accounts {
                     backup.todo_accounts.push(acc.to_string())
@@ -1371,6 +1380,44 @@ impl Helper {
                 account.best_sort = new;
 
                 return self.update_best(ident, false);
+            }
+            Message::AdvancedLevelRestrict(val) => {
+                self.config.show_crawling_restrict = val;
+                _ = self.config.write();
+            }
+            Message::CrawlerSetMinMax { server, min, max } => {
+                let Some(server) = self.servers.get_mut(&server) else {
+                    return Command::none();
+                };
+                if let CrawlingStatus::Crawling { que, .. } = &server.crawling {
+                    let mut que = que.lock().unwrap();
+                    que.min_level = min.max(1);
+                    que.max_level = max.max(min).min(9999);
+
+                    debug!(
+                        "Changed MinMax to {}/{}",
+                        que.min_level, que.max_level
+                    );
+                    let mut to_remove = IntSet::default();
+                    for (lvl, _) in
+                        que.lvl_skipped_accounts.range(0..que.min_level)
+                    {
+                        to_remove.insert(*lvl);
+                    }
+                    for (lvl, _) in
+                        que.lvl_skipped_accounts.range(que.max_level + 1..)
+                    {
+                        to_remove.insert(*lvl);
+                    }
+                    for lvl in to_remove {
+                        let Some(mut todo) =
+                            que.lvl_skipped_accounts.remove(&lvl)
+                        else {
+                            continue;
+                        };
+                        que.todo_accounts.append(&mut todo);
+                    }
+                }
             }
         }
         Command::none()

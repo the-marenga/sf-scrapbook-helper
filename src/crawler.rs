@@ -76,7 +76,19 @@ impl Crawler {
 
                 let mut lock = self.que.lock().unwrap();
                 for acc in gs.other_players.hall_of_fame.drain(..) {
-                    lock.todo_accounts.push(acc.name);
+                    if acc.level > lock.max_level || acc.level < lock.min_level
+                    {
+                        match lock.lvl_skipped_accounts.entry(acc.level) {
+                            std::collections::btree_map::Entry::Vacant(vac) => {
+                                vac.insert(vec![acc.name]);
+                            }
+                            std::collections::btree_map::Entry::Occupied(
+                                mut occ,
+                            ) => occ.get_mut().push(acc.name),
+                        }
+                    } else {
+                        lock.todo_accounts.push(acc.name);
+                    }
                 }
                 lock.in_flight_pages.retain(|a| a != page);
                 Message::PageCrawled
@@ -267,6 +279,9 @@ pub struct WorkerQue {
     pub in_flight_pages: Vec<usize>,
     pub in_flight_accounts: Vec<String>,
     pub order: CrawlingOrder,
+    pub lvl_skipped_accounts: BTreeMap<u32, Vec<String>>,
+    pub min_level: u32,
+    pub max_level: u32,
 }
 
 impl WorkerQue {

@@ -162,6 +162,12 @@ impl Helper {
             checkbox("Keep characters logged in", self.config.auto_poll)
                 .on_toggle(Message::SetAutoPoll);
 
+        let crawling_restrict = checkbox(
+            "Show advanced crawling options",
+            self.config.show_crawling_restrict,
+        )
+        .on_toggle(Message::AdvancedLevelRestrict);
+
         let max_threads =
             number_input(self.config.max_threads, 50, Message::SetMaxThreads);
 
@@ -181,7 +187,8 @@ impl Helper {
             .align_items(Alignment::Center);
 
         let settings_column = column!(
-            theme_row, auto_fetch_hof, auto_poll, max_threads, sort_best
+            theme_row, auto_fetch_hof, auto_poll, max_threads, sort_best,
+            crawling_restrict
         )
         .width(Length::Fixed(300.0))
         .spacing(20);
