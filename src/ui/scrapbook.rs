@@ -1,3 +1,4 @@
+use ahash::HashSet;
 use chrono::Local;
 use iced::{
     alignment::Horizontal,
@@ -149,6 +150,8 @@ pub fn view_scrapbook<'a>(
     }
     left_col = left_col.push(vertical_space());
     let sid = server.ident.id;
+    let mut banned = HashSet::default();
+
     match &server.crawling {
         CrawlingStatus::Crawling {
             threads,
@@ -160,6 +163,8 @@ pub fn view_scrapbook<'a>(
             let remaining = lock.count_remaining();
             let crawled = player_info.len();
             let total = remaining + crawled;
+
+            banned = lock.invalid_accounts.iter().cloned().collect();
 
             let progress_text = text(format!("Fetched {}/{}", crawled, total));
             left_col = left_col.push(progress_text);
@@ -274,6 +279,9 @@ pub fn view_scrapbook<'a>(
 
     let mut target_list = column!().spacing(10);
     for v in &si.best {
+        if banned.contains(&v.info.name) {
+            continue;
+        }
         target_list = target_list.push(row!(
             column!(button("Attack").on_press(Message::PlayerAttack {
                 ident: player.ident,
