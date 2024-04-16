@@ -108,9 +108,9 @@ impl Helper {
             AccountPage::Scrapbook => {
                 view_scrapbook(server, player, &self.config)
             }
-            AccountPage::Underworld => {
-                view_underworld(server, player, self.config.max_threads)
-            }
+            AccountPage::Underworld => view_underworld(
+                server, player, self.config.max_threads, &self.config,
+            ),
         };
 
         let col_container = container(middle).center_y();

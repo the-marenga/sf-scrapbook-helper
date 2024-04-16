@@ -11,6 +11,7 @@ use iced_aw::number_input;
 use sf_api::gamestate::underworld::UnderWorldResourceType;
 
 use crate::{
+    config::Config,
     crawler::CrawlingOrder,
     message::Message,
     player::{AccountInfo, AccountStatus},
@@ -21,6 +22,7 @@ pub fn view_underworld<'a>(
     server: &'a ServerInfo,
     player: &'a AccountInfo,
     max_threads: usize,
+    config: &'a Config,
 ) -> Element<'a, Message> {
     let lock = player.status.lock().unwrap();
     let _gs = match &*lock {
@@ -153,6 +155,38 @@ pub fn view_underworld<'a>(
                 )
                 .align_items(Alignment::Center),
             );
+            if config.show_crawling_restrict
+                || !lock.lvl_skipped_accounts.is_empty()
+            {
+                let old_max = lock.max_level;
+                let old_min = lock.min_level;
+
+                let set_min_lvl =
+                    number_input(lock.min_level, 9999u32, move |nv| {
+                        Message::CrawlerSetMinMax {
+                            server: sid,
+                            min: nv,
+                            max: old_max,
+                        }
+                    });
+                let thread_num =
+                    row!(text("Min Lvl: "), horizontal_space(), set_min_lvl)
+                        .align_items(Alignment::Center);
+                left_col = left_col.push(thread_num);
+
+                let set_min_lvl =
+                    number_input(lock.max_level, 9999u32, move |nv| {
+                        Message::CrawlerSetMinMax {
+                            server: sid,
+                            min: old_min,
+                            max: nv,
+                        }
+                    });
+                let thread_num =
+                    row!(text("Max Lvl: "), horizontal_space(), set_min_lvl)
+                        .align_items(Alignment::Center);
+                left_col = left_col.push(thread_num);
+            }
 
             let clear = button("Clear HoF").on_press(Message::ClearHof(sid));
             let save = button("Save HoF").on_press(Message::SaveHoF(sid));
