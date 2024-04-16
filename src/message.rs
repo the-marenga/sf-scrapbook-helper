@@ -567,7 +567,15 @@ impl Helper {
                 else {
                     return Command::none();
                 };
-                server.accounts.remove(&ident.account);
+                if let Some(old) = server.accounts.remove(&ident.account) {
+                    if matches!(old.auth, PlayerAuth::SSO) {
+                        if let Ok(mut sl) = old.status.lock() {
+                            if let Some(session) = sl.take_session() {
+                                self.login_state.import_que.push(*session);
+                            }
+                        }
+                    }
+                }
                 if server.accounts.is_empty() {
                     if let CrawlingStatus::Crawling { threads, .. } =
                         &mut server.crawling
