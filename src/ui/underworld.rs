@@ -3,7 +3,7 @@ use iced::{
     theme,
     widget::{
         button, column, horizontal_space, pick_list, progress_bar, row,
-        scrollable, text, vertical_space,
+        scrollable, text, vertical_space, Image,
     },
     Alignment, Element, Length,
 };
@@ -16,6 +16,7 @@ use crate::{
     message::Message,
     player::{AccountInfo, AccountStatus},
     server::{CrawlingStatus, ServerInfo},
+    ClassImages,
 };
 
 pub fn view_underworld<'a>(
@@ -23,6 +24,7 @@ pub fn view_underworld<'a>(
     player: &'a AccountInfo,
     max_threads: usize,
     config: &'a Config,
+    images: &'a ClassImages,
 ) -> Element<'a, Message> {
     let lock = player.status.lock().unwrap();
     let _gs = match &*lock {
@@ -227,6 +229,25 @@ pub fn view_underworld<'a>(
 
     let mut target_list = column!().spacing(10);
     for v in &info.best {
+        let mut target_ident = row!()
+            .align_items(Alignment::Start)
+            .spacing(5)
+            .width(Length::FillPortion(3));
+
+        if let Some(class) = v.class {
+            if config.show_class_icons {
+                let img = Image::new(images.get_handle(class))
+                    .width(Length::FillPortion(1))
+                    .content_fit(iced::ContentFit::ScaleDown);
+                target_ident = target_ident.push(img);
+            }
+        }
+        target_ident = target_ident.push(
+            text(&v.name)
+                .width(Length::FillPortion(15))
+                .horizontal_alignment(Horizontal::Left),
+        );
+
         target_list = target_list.push(row!(
             column!(button("Lure").on_press_maybe(
                 if info.underworld.battles_today >= 5 {
@@ -249,9 +270,7 @@ pub fn view_underworld<'a>(
             text(v.equipment.len())
                 .width(Length::FillPortion(1))
                 .horizontal_alignment(Horizontal::Center),
-            text(&v.name)
-                .width(Length::FillPortion(3))
-                .horizontal_alignment(Horizontal::Left),
+            target_ident
         ));
     }
     let target_list = scrollable(target_list);

@@ -24,6 +24,7 @@ use crate::{
 #[derive(Debug, Clone)]
 pub enum Message {
     AdvancedLevelRestrict(bool),
+    ShowClasses(bool),
     ChangeSort {
         ident: AccountIdent,
         new: BestSort,
@@ -1426,6 +1427,10 @@ impl Helper {
                         que.todo_accounts.append(&mut todo);
                     }
                 }
+            }
+            Message::ShowClasses(val) => {
+                self.config.show_class_icons = val;
+                _ = self.config.write();
             }
         }
         Command::none()

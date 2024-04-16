@@ -290,10 +290,12 @@ pub fn view_scrapbook<'a>(
             .width(Length::FillPortion(15));
 
         if let Some(class) = v.info.class {
-            let img = Image::new(images.get_handle(class))
-                .width(Length::FillPortion(1))
-                .content_fit(iced::ContentFit::ScaleDown);
-            target_ident = target_ident.push(img);
+            if config.show_class_icons {
+                let img = Image::new(images.get_handle(class))
+                    .width(Length::FillPortion(1))
+                    .content_fit(iced::ContentFit::ScaleDown);
+                target_ident = target_ident.push(img);
+            }
         }
         target_ident = target_ident.push(
             text(&v.info.name)
