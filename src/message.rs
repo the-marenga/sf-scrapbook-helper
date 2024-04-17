@@ -11,7 +11,7 @@ use sf_api::{
 use tokio::time::sleep;
 
 use self::{
-    backup::{get_newest_backup, restore_backup, RestoreData, ZHofBackup},
+    backup::{get_newest_backup, restore_backup, RestoreData},
     login::{SSOIdent, SSOLogin, SSOLoginStatus},
     ui::{underworld::LureTarget, BestSort},
 };
@@ -164,7 +164,7 @@ pub enum Message {
     ShowPlayer {
         ident: AccountIdent,
     },
-    CrawlerIdle,
+    CrawlerIdle(ServerID),
     CrawlerNoPlayerResult,
     CrawlerUnable {
         server: ServerID,
@@ -269,7 +269,39 @@ impl Helper {
                     }
                 }
             }
-            Message::CrawlerIdle => {}
+            Message::CrawlerIdle(server) => {
+                if !self.headless {
+                    return Command::none();
+                }
+                let Some(server) = self.servers.get_mut(&server) else {
+                    return Command::none();
+                };
+                let CrawlingStatus::Crawling {
+                    player_info, que, ..
+                } = &mut server.crawling
+                else {
+                    return Command::none();
+                };
+                let lock = que.lock().unwrap();
+                if !lock.todo_pages.is_empty()
+                    || !lock.todo_accounts.is_empty()
+                    || player_info.is_empty()
+                {
+                    return Command::none();
+                }
+                let backup = lock.create_backup(player_info);
+                let ident = server.ident.ident.to_string();
+
+                return Command::perform(
+                    async move { backup.write(&ident).await },
+                    |res| {
+                        Message::BackupRes(match res {
+                            Ok(_) => None,
+                            Err(e) => Some(e.to_string()),
+                        })
+                    },
+                );
+            }
             Message::CrawlerNoPlayerResult => {
                 // Maybe we want to count this as an error?
                 warn!("No player result");
@@ -298,7 +330,7 @@ impl Helper {
 
                 let mut lock = que.lock().unwrap();
                 match &action {
-                    CrawlAction::Wait => {}
+                    CrawlAction::Wait | CrawlAction::InitTodo => {}
                     CrawlAction::Page(a, b) => {
                         if *b == *que_id {
                             lock.invalid_pages.push(*a);
@@ -884,7 +916,7 @@ impl Helper {
                 let mut ok_character = vec![];
                 for action in recent_failures.drain(..) {
                     match action {
-                        CrawlAction::Wait => {}
+                        CrawlAction::Wait | CrawlAction::InitTodo => {}
                         CrawlAction::Page(page, que_id) => {
                             if que_id != que.que_id {
                                 continue;
@@ -1102,26 +1134,7 @@ impl Helper {
                 };
 
                 let lock = que.lock().unwrap();
-
-                let mut backup = ZHofBackup {
-                    todo_pages: lock.todo_pages.to_owned(),
-                    invalid_pages: lock.invalid_pages.to_owned(),
-                    todo_accounts: lock.todo_accounts.to_owned(),
-                    invalid_accounts: lock.invalid_accounts.to_owned(),
-                    order: lock.order,
-                    export_time: Some(Utc::now()),
-                    characters: player_info.values().cloned().collect(),
-                    lvl_skipped_accounts: lock.lvl_skipped_accounts.clone(),
-                    min_level: lock.min_level,
-                    max_level: lock.max_level,
-                };
-                for acc in &lock.in_flight_accounts {
-                    backup.todo_accounts.push(acc.to_string())
-                }
-
-                for page in &lock.in_flight_pages {
-                    backup.todo_pages.push(*page)
-                }
+                let backup = lock.create_backup(player_info);
                 drop(lock);
 
                 let ident = server.ident.ident.to_string();

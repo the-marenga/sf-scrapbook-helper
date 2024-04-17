@@ -15,6 +15,7 @@ use std::{
 };
 
 use chrono::{Local, NaiveDate, Utc};
+use clap::Parser;
 use config::{CharacterConfig, Config};
 use crawler::{CrawlAction, Crawler, CrawlerState, CrawlingOrder, WorkerQue};
 use iced::{
@@ -23,7 +24,7 @@ use iced::{
     Alignment, Application, Command, Element, Length, Settings, Subscription,
     Theme,
 };
-use log::{debug, info, trace};
+use log::{debug, error, info, trace};
 use log4rs::{
     append::{
         console::{ConsoleAppender, Target},
@@ -41,6 +42,7 @@ use serde::{Deserialize, Serialize};
 use server::{CrawlingStatus, ServerIdent, ServerInfo, Servers};
 use sf_api::{
     gamestate::{character::Class, unlockables::EquipmentIdent},
+    session::ServerConnection,
     sso::SSOProvider,
 };
 use tokio::time::sleep;
@@ -49,19 +51,38 @@ use crate::{
     config::{AccountCreds, AvailableTheme},
     message::Message,
 };
-
 pub const PER_PAGE: usize = 51;
 
+#[derive(Debug, Parser)]
+#[command(version, about, long_about = None)]
+struct Args {
+    /// Automatically crawls this server
+    #[arg(short, long)]
+    pub crawl: Option<String>,
+}
+
+impl Args {
+    pub fn is_headless(&self) -> bool {
+        self.crawl.is_some()
+    }
+}
+
 fn main() -> iced::Result {
+    let args = Args::parse();
+
     let config = get_log_config();
     log4rs::init_config(config).unwrap();
     info!("Starting up");
 
-    let mut settings = Settings::default();
+    let headless = args.is_headless();
+
+    let mut settings = Settings::with_flags(args);
     settings.window.min_size = Some(iced::Size {
         width: 700.0,
         height: 400.0,
     });
+
+    settings.window.visible = !headless;
 
     let raw_img = include_bytes!("../assets/icon.ico");
     let img =
@@ -86,6 +107,7 @@ struct Helper {
     config: Config,
     should_update: bool,
     class_images: ClassImages,
+    headless: bool,
 }
 
 struct ClassImages {
@@ -236,11 +258,11 @@ impl Application for Helper {
 
     type Theme = Theme;
 
-    type Flags = ();
+    type Flags = Args;
 
-    fn new(_flags: Self::Flags) -> (Self, iced::Command<Self::Message>) {
+    fn new(flags: Args) -> (Self, iced::Command<Self::Message>) {
         let config = Config::restore().unwrap_or_default();
-        let helper = Helper {
+        let mut helper = Helper {
             servers: Default::default(),
             login_state: LoginState {
                 login_typ: if config.accounts.is_empty() {
@@ -262,12 +284,20 @@ impl Application for Helper {
             current_view: View::Login,
             should_update: false,
             class_images: ClassImages::new(),
+            headless: flags.is_headless(),
         };
 
         let fetch_update =
             Command::perform(async { check_update().await }, |res| {
                 Message::UpdateResult(res.unwrap_or_default())
             });
+
+        if let Some(crawl) = flags.crawl {
+            if helper.force_init_crawling(&crawl, 10).is_none() {
+                error!("Could not init crawling on: {crawl}");
+                std::process::exit(1);
+            }
+        }
 
         (helper, fetch_update)
     }
@@ -389,6 +419,42 @@ impl Application for Helper {
 }
 
 impl Helper {
+    fn force_init_crawling(&mut self, url: &str, threads: usize) -> Option<()> {
+        let ident = ServerIdent::new(url);
+        let connection = ServerConnection::new(url)?;
+        let server = self.servers.get_or_insert_default(ident, connection);
+
+        let que_id = QueID::new();
+
+        let que = WorkerQue {
+            que_id,
+            todo_pages: Default::default(),
+            todo_accounts: Default::default(),
+            invalid_pages: Default::default(),
+            invalid_accounts: Default::default(),
+            in_flight_pages: Default::default(),
+            in_flight_accounts: Default::default(),
+            order: Default::default(),
+            lvl_skipped_accounts: Default::default(),
+            min_level: Default::default(),
+            max_level: Default::default(),
+            self_init: true,
+        };
+
+        server.crawling = CrawlingStatus::Crawling {
+            que_id,
+            threads,
+            que: Arc::new(Mutex::new(que)),
+            player_info: Default::default(),
+            equipment: Default::default(),
+            naked: Default::default(),
+            last_update: Local::now(),
+            crawling_session: None,
+            recent_failures: Default::default(),
+        };
+        Some(())
+    }
+
     fn has_accounts(&self) -> bool {
         self.servers.0.iter().any(|a| !a.1.accounts.is_empty())
     }

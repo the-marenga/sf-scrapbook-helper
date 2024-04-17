@@ -11,6 +11,7 @@ use sf_api::{
 };
 use tokio::{sync::RwLock, time::sleep};
 
+use self::backup::ZHofBackup;
 use crate::*;
 
 pub struct Crawler {
@@ -43,7 +44,14 @@ impl Crawler {
                             lock.in_flight_pages.push(idx);
                             break CrawlAction::Page(idx, lock.que_id);
                         }
-                        None => break CrawlAction::Wait,
+                        None => {
+                            if lock.self_init {
+                                lock.self_init = false;
+                                break CrawlAction::InitTodo;
+                            } else {
+                                break CrawlAction::Wait;
+                            }
+                        }
                     },
                 }
             }
@@ -55,7 +63,7 @@ impl Crawler {
             CrawlAction::Wait => {
                 drop(session);
                 sleep(Duration::from_secs(1)).await;
-                Message::CrawlerIdle
+                Message::CrawlerIdle(self.server_id)
             }
             CrawlAction::Page(page, _) => {
                 let cmd = Command::HallOfFamePage { page: *page };
@@ -150,6 +158,18 @@ impl Crawler {
                     character,
                 }
             }
+            CrawlAction::InitTodo => {
+                drop(session);
+                let gs = self.state.gs.lock().unwrap();
+                let pages =
+                    (gs.other_players.total_player as usize).div_ceil(PER_PAGE);
+                drop(gs);
+                let mut que = self.que.lock().unwrap();
+                que.todo_pages = (0..pages).collect();
+                let order = que.order;
+                order.apply_order(&mut que.todo_pages);
+                Message::CrawlerIdle(self.server_id)
+            }
         }
     }
 }
@@ -233,6 +253,7 @@ impl CrawlerState {
 #[derive(Debug, Clone)]
 pub enum CrawlAction {
     Wait,
+    InitTodo,
     Page(usize, QueID),
     Character(String, QueID),
 }
@@ -283,9 +304,38 @@ pub struct WorkerQue {
     pub lvl_skipped_accounts: BTreeMap<u32, Vec<String>>,
     pub min_level: u32,
     pub max_level: u32,
+    pub self_init: bool,
 }
 
 impl WorkerQue {
+    pub fn create_backup(
+        &self,
+        player_info: &IntMap<u32, CharacterInfo>,
+    ) -> ZHofBackup {
+        let mut backup = ZHofBackup {
+            todo_pages: self.todo_pages.to_owned(),
+            invalid_pages: self.invalid_pages.to_owned(),
+            todo_accounts: self.todo_accounts.to_owned(),
+            invalid_accounts: self.invalid_accounts.to_owned(),
+            order: self.order,
+            export_time: Some(Utc::now()),
+            characters: player_info.values().cloned().collect(),
+            lvl_skipped_accounts: self.lvl_skipped_accounts.clone(),
+            min_level: self.min_level,
+            max_level: self.max_level,
+        };
+
+        for acc in &self.in_flight_accounts {
+            backup.todo_accounts.push(acc.to_string())
+        }
+
+        for page in &self.in_flight_pages {
+            backup.todo_pages.push(*page)
+        }
+
+        backup
+    }
+
     pub fn count_remaining(&self) -> usize {
         self.todo_pages.len() * PER_PAGE
             + self.todo_accounts.len()

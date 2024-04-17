@@ -122,6 +122,7 @@ impl RestoreData {
                 max_level: self.max_level,
                 min_level: self.min_level,
                 lvl_skipped_accounts: self.lvl_skipped_accounts,
+                self_init: false,
             })),
             player_info: self.player_info,
             equipment: self.equipment,
