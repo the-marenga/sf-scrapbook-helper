@@ -43,6 +43,7 @@ pub struct ServerInfo {
     pub accounts: HashMap<AccountID, AccountInfo, ahash::RandomState>,
     pub crawling: CrawlingStatus,
     pub connection: ServerConnection,
+    pub headless_progress: Option<indicatif::ProgressBar>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -81,6 +82,7 @@ impl Servers {
         &mut self,
         server_ident: ServerIdent,
         connection: ServerConnection,
+        pb: Option<indicatif::ProgressBar>,
     ) -> &mut ServerInfo {
         let server =
             self.0.entry(server_ident.id).or_insert_with(|| ServerInfo {
@@ -88,6 +90,7 @@ impl Servers {
                 accounts: Default::default(),
                 crawling: CrawlingStatus::Waiting,
                 connection,
+                headless_progress: pb,
             });
         server
     }

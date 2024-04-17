@@ -11,7 +11,7 @@ use sf_api::{
 use tokio::time::sleep;
 
 use self::{
-    backup::{get_newest_backup, restore_backup, RestoreData, ZHofBackup},
+    backup::{get_newest_backup, restore_backup, RestoreData},
     login::{SSOIdent, SSOLogin, SSOLoginStatus},
     ui::{underworld::LureTarget, BestSort},
 };
@@ -23,6 +23,11 @@ use crate::{
 
 #[derive(Debug, Clone)]
 pub enum Message {
+    CrawlAllRes {
+        servers: Option<Vec<String>>,
+        concurrency: usize,
+    },
+    NextCLICrawling,
     AdvancedLevelRestrict(bool),
     ShowClasses(bool),
     ChangeSort {
@@ -58,7 +63,10 @@ pub enum Message {
     CopyBattleOrder {
         ident: AccountIdent,
     },
-    BackupRes(Option<String>),
+    BackupRes {
+        server: ServerID,
+        error: Option<String>,
+    },
     SaveHoF(ServerID),
     PlayerSetMaxLvl {
         ident: AccountIdent,
@@ -164,7 +172,7 @@ pub enum Message {
     ShowPlayer {
         ident: AccountIdent,
     },
-    CrawlerIdle,
+    CrawlerIdle(ServerID),
     CrawlerNoPlayerResult,
     CrawlerUnable {
         server: ServerID,
@@ -215,6 +223,7 @@ impl Helper {
                 let Some(server) = self.servers.get_mut(&server) else {
                     return Command::none();
                 };
+
                 trace!("{} crawled {}", server.ident.ident, character.name);
 
                 let CrawlingStatus::Crawling {
@@ -233,6 +242,14 @@ impl Helper {
 
                 let crawler_finished = {
                     let mut lock = que.lock().unwrap();
+                    if let Some(pb) = &server.headless_progress {
+                        let remaining = lock.count_remaining();
+                        let crawled = player_info.len();
+                        let total = remaining + crawled;
+                        pb.set_length(total as u64);
+                        pb.set_position(crawled as u64);
+                    };
+
                     lock.in_flight_accounts.retain(|a| a != &character.name);
                     lock.todo_pages.is_empty() && lock.todo_accounts.is_empty()
                 };
@@ -269,7 +286,35 @@ impl Helper {
                     }
                 }
             }
-            Message::CrawlerIdle => {}
+            Message::CrawlerIdle(server_id) => {
+                let Some(server) = self.servers.get_mut(&server_id) else {
+                    return Command::none();
+                };
+                let CrawlingStatus::Crawling {
+                    player_info, que, ..
+                } = &mut server.crawling
+                else {
+                    return Command::none();
+                };
+                let lock = que.lock().unwrap();
+                if !lock.todo_pages.is_empty()
+                    || !lock.todo_accounts.is_empty()
+                    || player_info.is_empty()
+                {
+                    return Command::none();
+                }
+                let backup = lock.create_backup(player_info);
+                let ident = server.ident.ident.to_string();
+                let id = server.ident.id;
+
+                return Command::perform(
+                    async move { backup.write(&ident).await },
+                    move |res| Message::BackupRes {
+                        server: id,
+                        error: res.err().map(|a| a.to_string()),
+                    },
+                );
+            }
             Message::CrawlerNoPlayerResult => {
                 // Maybe we want to count this as an error?
                 warn!("No player result");
@@ -298,7 +343,7 @@ impl Helper {
 
                 let mut lock = que.lock().unwrap();
                 match &action {
-                    CrawlAction::Wait => {}
+                    CrawlAction::Wait | CrawlAction::InitTodo => {}
                     CrawlAction::Page(a, b) => {
                         if *b == *que_id {
                             lock.invalid_pages.push(*a);
@@ -884,7 +929,7 @@ impl Helper {
                 let mut ok_character = vec![];
                 for action in recent_failures.drain(..) {
                     match action {
-                        CrawlAction::Wait => {}
+                        CrawlAction::Wait | CrawlAction::InitTodo => {}
                         CrawlAction::Page(page, que_id) => {
                             if que_id != que.que_id {
                                 continue;
@@ -1102,42 +1147,38 @@ impl Helper {
                 };
 
                 let lock = que.lock().unwrap();
-
-                let mut backup = ZHofBackup {
-                    todo_pages: lock.todo_pages.to_owned(),
-                    invalid_pages: lock.invalid_pages.to_owned(),
-                    todo_accounts: lock.todo_accounts.to_owned(),
-                    invalid_accounts: lock.invalid_accounts.to_owned(),
-                    order: lock.order,
-                    export_time: Some(Utc::now()),
-                    characters: player_info.values().cloned().collect(),
-                    lvl_skipped_accounts: lock.lvl_skipped_accounts.clone(),
-                    min_level: lock.min_level,
-                    max_level: lock.max_level,
-                };
-                for acc in &lock.in_flight_accounts {
-                    backup.todo_accounts.push(acc.to_string())
-                }
-
-                for page in &lock.in_flight_pages {
-                    backup.todo_pages.push(*page)
-                }
+                let backup = lock.create_backup(player_info);
                 drop(lock);
-
+                let id = server.ident.id;
                 let ident = server.ident.ident.to_string();
 
                 return Command::perform(
                     async move { backup.write(&ident).await },
-                    |res| {
-                        Message::BackupRes(match res {
-                            Ok(_) => None,
-                            Err(e) => Some(e.to_string()),
-                        })
+                    move |res| Message::BackupRes {
+                        server: id,
+                        error: res.err().map(|a| a.to_string()),
                     },
                 );
             }
-            Message::BackupRes(_) => {
+            Message::BackupRes {
+                server: server_id,
+                error,
+            } => {
                 // TODO: Display error?
+                let Some(server) = self.servers.get_mut(&server_id) else {
+                    return Command::none();
+                };
+                let Some(pb) = server.headless_progress.clone() else {
+                    return Command::none();
+                };
+                if let Some(err) = error {
+                    pb.println(err)
+                }
+                self.servers.0.remove(&server_id);
+                pb.finish_and_clear();
+                return Command::perform(async {}, |_| {
+                    Message::NextCLICrawling
+                });
             }
             Message::CopyBattleOrder { ident } => {
                 let Some((server, account)) = self.servers.get_ident(&ident)
@@ -1431,6 +1472,57 @@ impl Helper {
             Message::ShowClasses(val) => {
                 self.config.show_class_icons = val;
                 _ = self.config.write();
+            }
+            Message::NextCLICrawling => {
+                let Some(cli) = &mut self.cli_crawling else {
+                    return Command::none();
+                };
+                let pb = cli.mbp.add(ProgressBar::new_spinner());
+
+                let Some(url) = cli.todo_servers.pop() else {
+                    cli.active -= 1;
+                    if cli.active == 0 {
+                        pb.println("Finished Crawling all servers");
+                        pb.finish_and_clear();
+                        std::process::exit(0);
+                    }
+                    pb.finish_and_clear();
+                    return Command::none();
+                };
+                let threads = cli.threads;
+                return match self.force_init_crawling(&url, threads, pb.clone())
+                {
+                    Some(s) => s,
+                    None => {
+                        pb.println(format!(
+                            "Could not init crawling on: {url}"
+                        ));
+                        pb.finish_and_clear();
+                        return Command::perform(async {}, |_| {
+                            Message::NextCLICrawling
+                        });
+                    }
+                };
+            }
+            Message::CrawlAllRes {
+                servers,
+                concurrency,
+            } => {
+                let Some(cli) = &mut self.cli_crawling else {
+                    return Command::none();
+                };
+                let Some(servers) = servers else {
+                    _ = cli.mbp.println("Could not fetch server list");
+                    std::process::exit(1);
+                };
+                cli.todo_servers = servers;
+                let mut res = vec![];
+                for _ in 0..concurrency {
+                    res.push(Command::perform(async {}, |_| {
+                        Message::NextCLICrawling
+                    }))
+                }
+                return Command::batch(res);
             }
         }
         Command::none()

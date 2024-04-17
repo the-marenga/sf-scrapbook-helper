@@ -15,6 +15,7 @@ use std::{
 };
 
 use chrono::{Local, NaiveDate, Utc};
+use clap::{Parser, Subcommand};
 use config::{CharacterConfig, Config};
 use crawler::{CrawlAction, Crawler, CrawlerState, CrawlingOrder, WorkerQue};
 use iced::{
@@ -23,6 +24,7 @@ use iced::{
     Alignment, Application, Command, Element, Length, Settings, Subscription,
     Theme,
 };
+use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use log::{debug, info, trace};
 use log4rs::{
     append::{
@@ -41,7 +43,8 @@ use serde::{Deserialize, Serialize};
 use server::{CrawlingStatus, ServerIdent, ServerInfo, Servers};
 use sf_api::{
     gamestate::{character::Class, unlockables::EquipmentIdent},
-    sso::SSOProvider,
+    session::ServerConnection,
+    sso::{SSOProvider, ServerLookup},
 };
 use tokio::time::sleep;
 
@@ -49,19 +52,64 @@ use crate::{
     config::{AccountCreds, AvailableTheme},
     message::Message,
 };
-
 pub const PER_PAGE: usize = 51;
 
+#[derive(Debug, Parser)]
+#[command(version, about, long_about = None)]
+struct Args {
+    #[command(subcommand)]
+    pub sub: Option<CLICommand>,
+}
+
+#[derive(Debug, Subcommand, Clone)]
+enum CLICommand {
+    Crawl {
+        /// The amount of servers that will be simultaniously crawled
+        #[arg(short, long, default_value_t = 4, value_parser=concurrency_limits)]
+        concurrency: usize,
+        /// The amount of threads per server used to
+        #[arg(short, long, default_value_t = 10, value_parser=concurrency_limits)]
+        threads: usize,
+        #[clap(flatten)]
+        servers: ServerSelect,
+    },
+}
+fn concurrency_limits(s: &str) -> Result<usize, String> {
+    clap_num::number_range(s, 1, 20)
+}
+
+#[derive(Debug, clap::Args, Clone)]
+#[group(required = true, multiple = false)]
+pub struct ServerSelect {
+    /// Fetches a list of all servers and crawls all of them. Supercedes urls
+    #[arg(short, long)]
+    all: bool,
+    /// The list of all server urls to fetch
+    #[arg(short, long, value_delimiter = ' ', num_args = 1..)]
+    urls: Option<Vec<String>>,
+}
+
+impl Args {
+    pub fn is_headless(&self) -> bool {
+        self.sub.is_some()
+    }
+}
+
 fn main() -> iced::Result {
-    let config = get_log_config();
+    let args = Args::parse();
+
+    let is_headless = args.is_headless();
+    let config = get_log_config(is_headless);
     log4rs::init_config(config).unwrap();
     info!("Starting up");
 
-    let mut settings = Settings::default();
+    let mut settings = Settings::with_flags(args);
     settings.window.min_size = Some(iced::Size {
         width: 700.0,
         height: 400.0,
     });
+
+    settings.window.visible = !is_headless;
 
     let raw_img = include_bytes!("../assets/icon.ico");
     let img =
@@ -74,7 +122,6 @@ fn main() -> iced::Result {
             iced::window::icon::from_rgba(img.into_bytes(), width, height).ok();
         settings.window.icon = icon;
     }
-    debug!("Setup window");
 
     Helper::run(settings)
 }
@@ -86,6 +133,14 @@ struct Helper {
     config: Config,
     should_update: bool,
     class_images: ClassImages,
+    cli_crawling: Option<CLICrawling>,
+}
+
+struct CLICrawling {
+    todo_servers: Vec<String>,
+    mbp: MultiProgress,
+    threads: usize,
+    active: usize,
 }
 
 struct ClassImages {
@@ -236,11 +291,11 @@ impl Application for Helper {
 
     type Theme = Theme;
 
-    type Flags = ();
+    type Flags = Args;
 
-    fn new(_flags: Self::Flags) -> (Self, iced::Command<Self::Message>) {
+    fn new(flags: Args) -> (Self, iced::Command<Self::Message>) {
         let config = Config::restore().unwrap_or_default();
-        let helper = Helper {
+        let mut helper = Helper {
             servers: Default::default(),
             login_state: LoginState {
                 login_typ: if config.accounts.is_empty() {
@@ -258,18 +313,62 @@ impl Application for Helper {
                 google_sso: Arc::new(Mutex::new(SSOStatus::Initializing)),
                 steam_sso: Arc::new(Mutex::new(SSOStatus::Initializing)),
             },
-            config,
             current_view: View::Login,
             should_update: false,
             class_images: ClassImages::new(),
+            config,
+            cli_crawling: None,
         };
 
         let fetch_update =
             Command::perform(async { check_update().await }, |res| {
                 Message::UpdateResult(res.unwrap_or_default())
             });
+        let mut commands = vec![fetch_update];
 
-        (helper, fetch_update)
+        if let Some(CLICommand::Crawl {
+            concurrency,
+            threads,
+            servers,
+        }) = flags.sub
+        {
+            let mut info = CLICrawling {
+                todo_servers: Vec::new(),
+                mbp: MultiProgress::new(),
+                active: concurrency,
+                threads,
+            };
+
+            if let Some(servers) = servers.urls {
+                info.todo_servers = servers;
+
+                for _ in 0..concurrency {
+                    commands.push(Command::perform(async {}, move |_| {
+                        Message::NextCLICrawling
+                    }))
+                }
+            } else if servers.all {
+                let c = Command::perform(
+                    async {
+                        ServerLookup::fetch().await.ok().map(|a| {
+                            a.all()
+                                .into_iter()
+                                .map(|a| a.to_string())
+                                .filter(|a| a != "https://speed.sfgame.net/")
+                                .collect()
+                        })
+                    },
+                    move |servers| Message::CrawlAllRes {
+                        servers,
+                        concurrency,
+                    },
+                );
+                commands.push(c);
+            }
+            helper.cli_crawling = Some(info);
+        }
+
+        (helper, Command::batch(commands))
     }
 
     fn theme(&self) -> Theme {
@@ -389,6 +488,54 @@ impl Application for Helper {
 }
 
 impl Helper {
+    fn force_init_crawling(
+        &mut self,
+        url: &str,
+        threads: usize,
+        pb: ProgressBar,
+    ) -> Option<Command<Message>> {
+        let ident = ServerIdent::new(url);
+        let connection = ServerConnection::new(url)?;
+        pb.enable_steady_tick(Duration::from_millis(30));
+        pb.set_prefix(ident.ident.to_string());
+        set_full_bar(&pb, "Crawling", 0);
+        let server = self.servers.get_or_insert_default(
+            ident,
+            connection,
+            Some(pb.clone()),
+        );
+
+        let que_id = QueID::new();
+
+        let que = WorkerQue {
+            que_id,
+            todo_pages: Default::default(),
+            todo_accounts: Default::default(),
+            invalid_pages: Default::default(),
+            invalid_accounts: Default::default(),
+            in_flight_pages: Default::default(),
+            in_flight_accounts: Default::default(),
+            order: Default::default(),
+            lvl_skipped_accounts: Default::default(),
+            min_level: Default::default(),
+            max_level: 9999,
+            self_init: true,
+        };
+
+        server.crawling = CrawlingStatus::Crawling {
+            que_id,
+            threads: 0,
+            que: Arc::new(Mutex::new(que)),
+            player_info: Default::default(),
+            equipment: Default::default(),
+            naked: Default::default(),
+            last_update: Local::now(),
+            crawling_session: None,
+            recent_failures: Default::default(),
+        };
+        Some(server.set_threads(threads, &self.config.base_name))
+    }
+
     fn has_accounts(&self) -> bool {
         self.servers.0.iter().any(|a| !a.1.accounts.is_empty())
     }
@@ -764,7 +911,7 @@ pub fn handle_new_char_info(
     }
 }
 
-fn get_log_config() -> log4rs::Config {
+fn get_log_config(is_headless: bool) -> log4rs::Config {
     let pattern = PatternEncoder::new(
         "{d(%Y-%m-%d %H:%M:%S)} | {({l}):5.5} | {M}:{L} | {m}{n}",
     );
@@ -778,9 +925,17 @@ fn get_log_config() -> log4rs::Config {
         .build("helper.log")
         .unwrap();
 
-    log4rs::Config::builder()
-        .appender(Appender::builder().build("logfile", Box::new(logfile)))
-        .appender(Appender::builder().build("stderr", Box::new(stderr)))
+    let mut logger = log4rs::Config::builder()
+        .appender(Appender::builder().build("logfile", Box::new(logfile)));
+    let mut root = Root::builder();
+
+    if !is_headless {
+        logger = logger
+            .appender(Appender::builder().build("stderr", Box::new(stderr)));
+        root = root.appender("stderr");
+    }
+
+    logger
         .logger(
             Logger::builder()
                 .appender("logfile")
@@ -791,11 +946,7 @@ fn get_log_config() -> log4rs::Config {
                 .appender("logfile")
                 .build("sf_api", log::LevelFilter::Warn),
         )
-        .build(
-            Root::builder()
-                .appender("stderr")
-                .build(log::LevelFilter::Error),
-        )
+        .build(root.build(log::LevelFilter::Error))
         .unwrap()
 }
 
@@ -825,4 +976,19 @@ async fn check_update() -> Result<bool, Box<dyn std::error::Error>> {
         should_update = own_version < git_version;
     }
     Ok(should_update)
+}
+
+pub fn set_full_bar(bar: &ProgressBar, title: &str, length: usize) {
+    let style = ProgressStyle::default_spinner()
+        .template(
+            "{spinner} {prefix:17.red} - {msg:25.blue} {wide_bar:.green} \
+             [{elapsed_precise}/{duration_precise}] [{pos:6}/{len:6}]",
+        )
+        .unwrap_or_else(|_| ProgressStyle::default_spinner());
+
+    bar.set_style(style);
+    bar.reset_elapsed();
+    bar.set_message(title.to_string());
+    bar.set_length(length as u64);
+    bar.set_position(0);
 }
