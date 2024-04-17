@@ -161,8 +161,8 @@ impl Crawler {
             CrawlAction::InitTodo => {
                 drop(session);
                 let gs = self.state.gs.lock().unwrap();
-                let pages =
-                    (gs.other_players.total_player as usize).div_ceil(PER_PAGE);
+                let pages = 5;
+                // (gs.other_players.total_player as usize).div_ceil(PER_PAGE);
                 drop(gs);
                 let mut que = self.que.lock().unwrap();
                 que.todo_pages = (0..pages).collect();

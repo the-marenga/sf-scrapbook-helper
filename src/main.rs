@@ -15,7 +15,7 @@ use std::{
 };
 
 use chrono::{Local, NaiveDate, Utc};
-use clap::Parser;
+use clap::{Parser, Subcommand};
 use config::{CharacterConfig, Config};
 use crawler::{CrawlAction, Crawler, CrawlerState, CrawlingOrder, WorkerQue};
 use iced::{
@@ -24,8 +24,8 @@ use iced::{
     Alignment, Application, Command, Element, Length, Settings, Subscription,
     Theme,
 };
-use indicatif::{ProgressBar, ProgressStyle};
-use log::{debug, error, info, trace};
+use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
+use log::{debug, info, trace};
 use log4rs::{
     append::{
         console::{ConsoleAppender, Target},
@@ -57,14 +57,38 @@ pub const PER_PAGE: usize = 51;
 #[derive(Debug, Parser)]
 #[command(version, about, long_about = None)]
 struct Args {
-    /// Automatically crawls this server
+    #[command(subcommand)]
+    pub sub: Option<CLICommand>,
+}
+
+#[derive(Debug, Subcommand, Clone)]
+enum CLICommand {
+    Crawl {
+        /// The amount of servers that will be simultaniously crawled
+        #[arg(short, long, default_value_t = 4)]
+        concurrency: usize,
+        /// The amount of threads per server used to
+        #[arg(short, long, default_value_t = 10)]
+        threads: usize,
+        #[clap(flatten)]
+        servers: ServerSelect,
+    },
+}
+
+#[derive(Debug, clap::Args, Clone)]
+#[group(required = true, multiple = false)]
+pub struct ServerSelect {
+    /// Fetches a list of all servers and crawls all of them. Supercedes urls
     #[arg(short, long)]
-    pub crawl: Option<String>,
+    all: bool,
+    /// The list of all server urls to fetch
+    #[arg(short, long, value_delimiter = ' ', num_args = 1..)]
+    urls: Option<Vec<String>>,
 }
 
 impl Args {
     pub fn is_headless(&self) -> bool {
-        self.crawl.is_some()
+        self.sub.is_some()
     }
 }
 
@@ -75,7 +99,6 @@ fn main() -> iced::Result {
     let config = get_log_config(is_headless);
     log4rs::init_config(config).unwrap();
     info!("Starting up");
-
 
     let mut settings = Settings::with_flags(args);
     settings.window.min_size = Some(iced::Size {
@@ -96,7 +119,6 @@ fn main() -> iced::Result {
             iced::window::icon::from_rgba(img.into_bytes(), width, height).ok();
         settings.window.icon = icon;
     }
-    debug!("Setup window");
 
     Helper::run(settings)
 }
@@ -108,6 +130,14 @@ struct Helper {
     config: Config,
     should_update: bool,
     class_images: ClassImages,
+    cli_crawling: Option<CLICrawling>,
+}
+
+struct CLICrawling {
+    todo_servers: Vec<String>,
+    mbp: MultiProgress,
+    threads: usize,
+    active: usize,
 }
 
 struct ClassImages {
@@ -280,26 +310,44 @@ impl Application for Helper {
                 google_sso: Arc::new(Mutex::new(SSOStatus::Initializing)),
                 steam_sso: Arc::new(Mutex::new(SSOStatus::Initializing)),
             },
-            config,
             current_view: View::Login,
             should_update: false,
             class_images: ClassImages::new(),
+            config,
+            cli_crawling: None,
         };
+
         let fetch_update =
             Command::perform(async { check_update().await }, |res| {
                 Message::UpdateResult(res.unwrap_or_default())
             });
         let mut commands = vec![fetch_update];
 
-        let mbp = indicatif::MultiProgress::new();
-
-        if let Some(crawl) = flags.crawl {
-            let pb = mbp.add(ProgressBar::new_spinner());
-            let Some(cmd) = helper.force_init_crawling(&crawl, 10, pb) else {
-                error!("Could not init crawling on: {crawl}");
-                std::process::exit(1);
+        if let Some(CLICommand::Crawl {
+            concurrency,
+            threads,
+            servers,
+        }) = flags.sub
+        {
+            let mut info = CLICrawling {
+                todo_servers: Vec::new(),
+                mbp: MultiProgress::new(),
+                active: concurrency,
+                threads,
             };
-            commands.push(cmd);
+
+            if let Some(servers) = servers.urls {
+                info.todo_servers = servers;
+
+                for _ in 0..concurrency {
+                    commands.push(Command::perform(async {}, move |_| {
+                        Message::NextCLICrawling
+                    }))
+                }
+            } else if servers.all {
+                todo!()
+            }
+            helper.cli_crawling = Some(info);
         }
 
         (helper, Command::batch(commands))
@@ -864,22 +912,24 @@ fn get_log_config(is_headless: bool) -> log4rs::Config {
     let mut root = Root::builder();
 
     if !is_headless {
-        logger = logger.appender(Appender::builder().build("stderr", Box::new(stderr)));
+        logger = logger
+            .appender(Appender::builder().build("stderr", Box::new(stderr)));
         root = root.appender("stderr");
     }
 
-    logger.logger(
-        Logger::builder()
-            .appender("logfile")
-            .build("sf_scrapbook_helper", log::LevelFilter::Debug),
-    )
-    .logger(
-        Logger::builder()
-            .appender("logfile")
-            .build("sf_api", log::LevelFilter::Warn),
-    )
-    .build(root.build(log::LevelFilter::Error))
-    .unwrap()
+    logger
+        .logger(
+            Logger::builder()
+                .appender("logfile")
+                .build("sf_scrapbook_helper", log::LevelFilter::Debug),
+        )
+        .logger(
+            Logger::builder()
+                .appender("logfile")
+                .build("sf_api", log::LevelFilter::Warn),
+        )
+        .build(root.build(log::LevelFilter::Error))
+        .unwrap()
 }
 
 async fn check_update() -> Result<bool, Box<dyn std::error::Error>> {

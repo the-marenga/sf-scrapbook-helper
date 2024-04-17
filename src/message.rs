@@ -23,6 +23,7 @@ use crate::{
 
 #[derive(Debug, Clone)]
 pub enum Message {
+    NextCLICrawling,
     AdvancedLevelRestrict(bool),
     ShowClasses(bool),
     ChangeSort {
@@ -243,7 +244,6 @@ impl Helper {
                         let total = remaining + crawled;
                         pb.set_length(total as u64);
                         pb.set_position(crawled as u64);
-
                     };
 
                     lock.in_flight_accounts.retain(|a| a != &character.name);
@@ -1170,12 +1170,12 @@ impl Helper {
                 if let Some(err) = error {
                     pb.println(err)
                 }
+                pb.println(format!("Finished: {}", server.ident.ident));
                 self.servers.0.remove(&server_id);
-                if self.servers.0.is_empty() {
-                    pb.println("Finished crawling");
-                    std::process::exit(0);
-                }
                 pb.finish_and_clear();
+                return Command::perform(async {}, |_| {
+                    Message::NextCLICrawling
+                });
             }
             Message::CopyBattleOrder { ident } => {
                 let Some((server, account)) = self.servers.get_ident(&ident)
@@ -1469,6 +1469,36 @@ impl Helper {
             Message::ShowClasses(val) => {
                 self.config.show_class_icons = val;
                 _ = self.config.write();
+            }
+            Message::NextCLICrawling => {
+                let Some(cli) = &mut self.cli_crawling else {
+                    return Command::none();
+                };
+                let pb = cli.mbp.add(ProgressBar::new_spinner());
+
+                let Some(url) = cli.todo_servers.pop() else {
+                    cli.active -= 1;
+                    if cli.active == 0 {
+                        pb.println("Finished Crawling all servers");
+                        pb.finish_and_clear();
+                        std::process::exit(0);
+                    }
+                    return Command::none();
+                };
+                let threads = cli.threads;
+                return match self.force_init_crawling(&url, threads, pb.clone())
+                {
+                    Some(s) => s,
+                    None => {
+                        pb.println(format!(
+                            "Could not init crawling on: {url}"
+                        ));
+                        pb.finish_and_clear();
+                        return Command::perform(async {}, |_| {
+                            Message::NextCLICrawling
+                        });
+                    }
+                };
             }
         }
         Command::none()
