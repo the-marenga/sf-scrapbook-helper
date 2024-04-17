@@ -15,6 +15,7 @@ iced_aw = { version = "0.8", default-features = false, features = [
     "number_input",
 ] }
 image = { version = "0.25", default-features = false, features = ["ico", "webp"] }
+indicatif = "0.17.8"
 log = "0.4.21"
 log4rs = { version = "1.3.0"}
 nohash-hasher = "0.2"

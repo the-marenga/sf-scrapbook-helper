@@ -24,6 +24,7 @@ use iced::{
     Alignment, Application, Command, Element, Length, Settings, Subscription,
     Theme,
 };
+use indicatif::{ProgressBar, ProgressStyle};
 use log::{debug, error, info, trace};
 use log4rs::{
     append::{
@@ -70,11 +71,11 @@ impl Args {
 fn main() -> iced::Result {
     let args = Args::parse();
 
-    let config = get_log_config();
+    let is_headless = args.is_headless();
+    let config = get_log_config(is_headless);
     log4rs::init_config(config).unwrap();
     info!("Starting up");
 
-    let headless = args.is_headless();
 
     let mut settings = Settings::with_flags(args);
     settings.window.min_size = Some(iced::Size {
@@ -82,7 +83,7 @@ fn main() -> iced::Result {
         height: 400.0,
     });
 
-    settings.window.visible = !headless;
+    settings.window.visible = !is_headless;
 
     let raw_img = include_bytes!("../assets/icon.ico");
     let img =
@@ -107,7 +108,6 @@ struct Helper {
     config: Config,
     should_update: bool,
     class_images: ClassImages,
-    headless: bool,
 }
 
 struct ClassImages {
@@ -284,22 +284,25 @@ impl Application for Helper {
             current_view: View::Login,
             should_update: false,
             class_images: ClassImages::new(),
-            headless: flags.is_headless(),
         };
-
         let fetch_update =
             Command::perform(async { check_update().await }, |res| {
                 Message::UpdateResult(res.unwrap_or_default())
             });
+        let mut commands = vec![fetch_update];
+
+        let mbp = indicatif::MultiProgress::new();
 
         if let Some(crawl) = flags.crawl {
-            if helper.force_init_crawling(&crawl, 10).is_none() {
+            let pb = mbp.add(ProgressBar::new_spinner());
+            let Some(cmd) = helper.force_init_crawling(&crawl, 10, pb) else {
                 error!("Could not init crawling on: {crawl}");
                 std::process::exit(1);
-            }
+            };
+            commands.push(cmd);
         }
 
-        (helper, fetch_update)
+        (helper, Command::batch(commands))
     }
 
     fn theme(&self) -> Theme {
@@ -419,10 +422,22 @@ impl Application for Helper {
 }
 
 impl Helper {
-    fn force_init_crawling(&mut self, url: &str, threads: usize) -> Option<()> {
+    fn force_init_crawling(
+        &mut self,
+        url: &str,
+        threads: usize,
+        pb: ProgressBar,
+    ) -> Option<Command<Message>> {
         let ident = ServerIdent::new(url);
         let connection = ServerConnection::new(url)?;
-        let server = self.servers.get_or_insert_default(ident, connection);
+        pb.enable_steady_tick(Duration::from_millis(30));
+        pb.set_prefix(ident.ident.to_string());
+        set_full_bar(&pb, "Crawling", 0);
+        let server = self.servers.get_or_insert_default(
+            ident,
+            connection,
+            Some(pb.clone()),
+        );
 
         let que_id = QueID::new();
 
@@ -437,13 +452,13 @@ impl Helper {
             order: Default::default(),
             lvl_skipped_accounts: Default::default(),
             min_level: Default::default(),
-            max_level: Default::default(),
+            max_level: 9999,
             self_init: true,
         };
 
         server.crawling = CrawlingStatus::Crawling {
             que_id,
-            threads,
+            threads: 0,
             que: Arc::new(Mutex::new(que)),
             player_info: Default::default(),
             equipment: Default::default(),
@@ -452,7 +467,7 @@ impl Helper {
             crawling_session: None,
             recent_failures: Default::default(),
         };
-        Some(())
+        Some(server.set_threads(threads, &self.config.base_name))
     }
 
     fn has_accounts(&self) -> bool {
@@ -830,7 +845,7 @@ pub fn handle_new_char_info(
     }
 }
 
-fn get_log_config() -> log4rs::Config {
+fn get_log_config(is_headless: bool) -> log4rs::Config {
     let pattern = PatternEncoder::new(
         "{d(%Y-%m-%d %H:%M:%S)} | {({l}):5.5} | {M}:{L} | {m}{n}",
     );
@@ -844,25 +859,27 @@ fn get_log_config() -> log4rs::Config {
         .build("helper.log")
         .unwrap();
 
-    log4rs::Config::builder()
-        .appender(Appender::builder().build("logfile", Box::new(logfile)))
-        .appender(Appender::builder().build("stderr", Box::new(stderr)))
-        .logger(
-            Logger::builder()
-                .appender("logfile")
-                .build("sf_scrapbook_helper", log::LevelFilter::Debug),
-        )
-        .logger(
-            Logger::builder()
-                .appender("logfile")
-                .build("sf_api", log::LevelFilter::Warn),
-        )
-        .build(
-            Root::builder()
-                .appender("stderr")
-                .build(log::LevelFilter::Error),
-        )
-        .unwrap()
+    let mut logger = log4rs::Config::builder()
+        .appender(Appender::builder().build("logfile", Box::new(logfile)));
+    let mut root = Root::builder();
+
+    if !is_headless {
+        logger = logger.appender(Appender::builder().build("stderr", Box::new(stderr)));
+        root = root.appender("stderr");
+    }
+
+    logger.logger(
+        Logger::builder()
+            .appender("logfile")
+            .build("sf_scrapbook_helper", log::LevelFilter::Debug),
+    )
+    .logger(
+        Logger::builder()
+            .appender("logfile")
+            .build("sf_api", log::LevelFilter::Warn),
+    )
+    .build(root.build(log::LevelFilter::Error))
+    .unwrap()
 }
 
 async fn check_update() -> Result<bool, Box<dyn std::error::Error>> {
@@ -891,4 +908,19 @@ async fn check_update() -> Result<bool, Box<dyn std::error::Error>> {
         should_update = own_version < git_version;
     }
     Ok(should_update)
+}
+
+pub fn set_full_bar(bar: &ProgressBar, title: &str, length: usize) {
+    let style = ProgressStyle::default_spinner()
+        .template(
+            "{spinner} {prefix:17.red} - {msg:25.blue} {wide_bar:.green} \
+             [{elapsed_precise}/{duration_precise}] [{pos:6}/{len:6}]",
+        )
+        .unwrap_or_else(|_| ProgressStyle::default_spinner());
+
+    bar.set_style(style);
+    bar.reset_elapsed();
+    bar.set_message(title.to_string());
+    bar.set_length(length as u64);
+    bar.set_position(0);
 }

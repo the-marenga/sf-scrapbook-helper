@@ -58,7 +58,10 @@ pub enum Message {
     CopyBattleOrder {
         ident: AccountIdent,
     },
-    BackupRes(Option<String>),
+    BackupRes {
+        server: ServerID,
+        error: Option<String>,
+    },
     SaveHoF(ServerID),
     PlayerSetMaxLvl {
         ident: AccountIdent,
@@ -215,6 +218,7 @@ impl Helper {
                 let Some(server) = self.servers.get_mut(&server) else {
                     return Command::none();
                 };
+
                 trace!("{} crawled {}", server.ident.ident, character.name);
 
                 let CrawlingStatus::Crawling {
@@ -233,6 +237,15 @@ impl Helper {
 
                 let crawler_finished = {
                     let mut lock = que.lock().unwrap();
+                    if let Some(pb) = &server.headless_progress {
+                        let remaining = lock.count_remaining();
+                        let crawled = player_info.len();
+                        let total = remaining + crawled;
+                        pb.set_length(total as u64);
+                        pb.set_position(crawled as u64);
+
+                    };
+
                     lock.in_flight_accounts.retain(|a| a != &character.name);
                     lock.todo_pages.is_empty() && lock.todo_accounts.is_empty()
                 };
@@ -269,11 +282,8 @@ impl Helper {
                     }
                 }
             }
-            Message::CrawlerIdle(server) => {
-                if !self.headless {
-                    return Command::none();
-                }
-                let Some(server) = self.servers.get_mut(&server) else {
+            Message::CrawlerIdle(server_id) => {
+                let Some(server) = self.servers.get_mut(&server_id) else {
                     return Command::none();
                 };
                 let CrawlingStatus::Crawling {
@@ -291,14 +301,13 @@ impl Helper {
                 }
                 let backup = lock.create_backup(player_info);
                 let ident = server.ident.ident.to_string();
+                let id = server.ident.id;
 
                 return Command::perform(
                     async move { backup.write(&ident).await },
-                    |res| {
-                        Message::BackupRes(match res {
-                            Ok(_) => None,
-                            Err(e) => Some(e.to_string()),
-                        })
+                    move |res| Message::BackupRes {
+                        server: id,
+                        error: res.err().map(|a| a.to_string()),
                     },
                 );
             }
@@ -1136,21 +1145,37 @@ impl Helper {
                 let lock = que.lock().unwrap();
                 let backup = lock.create_backup(player_info);
                 drop(lock);
-
+                let id = server.ident.id;
                 let ident = server.ident.ident.to_string();
 
                 return Command::perform(
                     async move { backup.write(&ident).await },
-                    |res| {
-                        Message::BackupRes(match res {
-                            Ok(_) => None,
-                            Err(e) => Some(e.to_string()),
-                        })
+                    move |res| Message::BackupRes {
+                        server: id,
+                        error: res.err().map(|a| a.to_string()),
                     },
                 );
             }
-            Message::BackupRes(_) => {
+            Message::BackupRes {
+                server: server_id,
+                error,
+            } => {
                 // TODO: Display error?
+                let Some(server) = self.servers.get_mut(&server_id) else {
+                    return Command::none();
+                };
+                let Some(pb) = server.headless_progress.clone() else {
+                    return Command::none();
+                };
+                if let Some(err) = error {
+                    pb.println(err)
+                }
+                self.servers.0.remove(&server_id);
+                if self.servers.0.is_empty() {
+                    pb.println("Finished crawling");
+                    std::process::exit(0);
+                }
+                pb.finish_and_clear();
             }
             Message::CopyBattleOrder { ident } => {
                 let Some((server, account)) = self.servers.get_ident(&ident)

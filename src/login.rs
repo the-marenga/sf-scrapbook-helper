@@ -485,7 +485,7 @@ impl Helper {
         };
         let info = AccountInfo::new(&name, auth, account_ident, &self.config);
         let server =
-            self.servers.get_or_insert_default(server_ident, connection);
+            self.servers.get_or_insert_default(server_ident, connection, None);
 
         if let Some((_, existing)) =
             server.accounts.iter().find(|(_, a)| a.name == name)
