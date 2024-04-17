@@ -44,7 +44,7 @@ use server::{CrawlingStatus, ServerIdent, ServerInfo, Servers};
 use sf_api::{
     gamestate::{character::Class, unlockables::EquipmentIdent},
     session::ServerConnection,
-    sso::SSOProvider,
+    sso::{SSOProvider, ServerLookup},
 };
 use tokio::time::sleep;
 
@@ -65,14 +65,17 @@ struct Args {
 enum CLICommand {
     Crawl {
         /// The amount of servers that will be simultaniously crawled
-        #[arg(short, long, default_value_t = 4)]
+        #[arg(short, long, default_value_t = 4, value_parser=concurrency_limits)]
         concurrency: usize,
         /// The amount of threads per server used to
-        #[arg(short, long, default_value_t = 10)]
+        #[arg(short, long, default_value_t = 10, value_parser=concurrency_limits)]
         threads: usize,
         #[clap(flatten)]
         servers: ServerSelect,
     },
+}
+fn concurrency_limits(s: &str) -> Result<usize, String> {
+    clap_num::number_range(s, 1, 20)
 }
 
 #[derive(Debug, clap::Args, Clone)]
@@ -345,7 +348,22 @@ impl Application for Helper {
                     }))
                 }
             } else if servers.all {
-                todo!()
+                let c = Command::perform(
+                    async {
+                        ServerLookup::fetch().await.ok().map(|a| {
+                            a.all()
+                                .into_iter()
+                                .map(|a| a.to_string())
+                                .filter(|a| a != "https://speed.sfgame.net/")
+                                .collect()
+                        })
+                    },
+                    move |servers| Message::CrawlAllRes {
+                        servers,
+                        concurrency,
+                    },
+                );
+                commands.push(c);
             }
             helper.cli_crawling = Some(info);
         }

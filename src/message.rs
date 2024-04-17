@@ -23,6 +23,10 @@ use crate::{
 
 #[derive(Debug, Clone)]
 pub enum Message {
+    CrawlAllRes {
+        servers: Option<Vec<String>>,
+        concurrency: usize,
+    },
     NextCLICrawling,
     AdvancedLevelRestrict(bool),
     ShowClasses(bool),
@@ -1170,7 +1174,6 @@ impl Helper {
                 if let Some(err) = error {
                     pb.println(err)
                 }
-                pb.println(format!("Finished: {}", server.ident.ident));
                 self.servers.0.remove(&server_id);
                 pb.finish_and_clear();
                 return Command::perform(async {}, |_| {
@@ -1483,6 +1486,7 @@ impl Helper {
                         pb.finish_and_clear();
                         std::process::exit(0);
                     }
+                    pb.finish_and_clear();
                     return Command::none();
                 };
                 let threads = cli.threads;
@@ -1499,6 +1503,26 @@ impl Helper {
                         });
                     }
                 };
+            }
+            Message::CrawlAllRes {
+                servers,
+                concurrency,
+            } => {
+                let Some(cli) = &mut self.cli_crawling else {
+                    return Command::none();
+                };
+                let Some(servers) = servers else {
+                    _ = cli.mbp.println("Could not fetch server list");
+                    std::process::exit(1);
+                };
+                cli.todo_servers = servers;
+                let mut res = vec![];
+                for _ in 0..concurrency {
+                    res.push(Command::perform(async {}, |_| {
+                        Message::NextCLICrawling
+                    }))
+                }
+                return Command::batch(res);
             }
         }
         Command::none()

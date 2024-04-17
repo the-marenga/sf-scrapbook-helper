@@ -120,7 +120,7 @@ impl Crawler {
                     };
                 }
 
-                let character = match gs.other_players.lookup_name(name) {
+                let character = match gs.other_players.remove_name(name) {
                     Some(player) => {
                         let equipment = player
                             .equipment
@@ -134,7 +134,7 @@ impl Crawler {
                                 + player.bonus_attributes.0.iter().sum::<u32>();
                         CharacterInfo {
                             equipment,
-                            name: player.name.clone(),
+                            name: player.name,
                             uid: player.player_id,
                             level: player.level,
                             fetch_date: Some(Utc::now().date_naive()),
