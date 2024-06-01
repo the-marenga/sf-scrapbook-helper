@@ -61,6 +61,10 @@ pub enum Message {
         gs: Box<GameState>,
         session: Box<CharacterSession>,
     },
+    PlayerRelogDelay {
+        ident: AccountIdent,
+        session: Box<CharacterSession>,
+    },
     CopyBattleOrder {
         ident: AccountIdent,
     },
@@ -122,6 +126,7 @@ pub enum Message {
     PlayerCommandFailed {
         ident: AccountIdent,
         session: Box<CharacterSession>,
+        attempt: u64,
     },
     PlayerAttackResult {
         ident: AccountIdent,
@@ -757,13 +762,18 @@ impl Helper {
                         Err(_) => Message::PlayerCommandFailed {
                             ident,
                             session: r.1,
+                            attempt: 0,
                         },
                     },
                 );
 
                 return Command::batch([refetch, fight]);
             }
-            Message::PlayerCommandFailed { ident, mut session } => {
+            Message::PlayerCommandFailed {
+                ident,
+                mut session,
+                attempt,
+            } => {
                 let Some(server) = self.servers.0.get_mut(&ident.server_id)
                 else {
                     return Command::none();
@@ -787,16 +797,18 @@ impl Helper {
                             sleep(Duration::from_secs(5)).await;
                             return Err(session);
                         };
-                        sleep(Duration::from_secs(10)).await;
+                        sleep(Duration::from_secs(attempt)).await;
                         Ok((Box::new(gamestate), session))
                     },
                     move |res| match res {
                         Ok((gs, session)) => {
                             Message::PlayerRelogSuccess { ident, gs, session }
                         }
-                        Err(session) => {
-                            Message::PlayerCommandFailed { ident, session }
-                        }
+                        Err(session) => Message::PlayerCommandFailed {
+                            ident,
+                            session,
+                            attempt: attempt + 1,
+                        },
                     },
                 );
             }
@@ -1098,6 +1110,7 @@ impl Helper {
                         Err(_) => Message::PlayerCommandFailed {
                             ident,
                             session: r.1,
+                            attempt: 0,
                         },
                     },
                 );
@@ -1237,8 +1250,16 @@ impl Helper {
                 };
 
                 let mut lock = player.status.lock().unwrap();
-                *lock = AccountStatus::Idle(session, gs);
+                *lock = AccountStatus::Busy(gs);
                 drop(lock);
+                // For some reason the game does not like sending requests
+                // immediately
+                return Command::perform(
+                    async {
+                        sleep(Duration::from_secs(10)).await;
+                    },
+                    move |_| Message::PlayerRelogDelay { ident, session },
+                );
             }
             Message::SSOLoginFailure { name, error } => {
                 self
@@ -1294,6 +1315,7 @@ impl Helper {
                         Err(_) => Message::PlayerCommandFailed {
                             ident,
                             session: r.1,
+                            attempt: 0,
                         },
                     },
                 );
@@ -1510,6 +1532,20 @@ impl Helper {
                 return Command::batch(res);
             }
             Message::FontLoaded(_) => {}
+            Message::PlayerRelogDelay { ident, session } => {
+                let Some(server) = self.servers.get_mut(&ident.server_id)
+                else {
+                    return Command::none();
+                };
+                let Some(account) = server.accounts.get_mut(&ident.account)
+                else {
+                    return Command::none();
+                };
+
+                let mut lock = account.status.lock().unwrap();
+                lock.put_session(session);
+                drop(lock);
+            }
         }
         Command::none()
     }

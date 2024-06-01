@@ -280,6 +280,7 @@ impl CrawlingOrder {
     }
 }
 
+#[allow(clippy::to_string_trait_impl)]
 impl ToString for CrawlingOrder {
     fn to_string(&self) -> String {
         match self {
