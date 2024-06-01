@@ -8,7 +8,7 @@ use iced::{
     Alignment, Element, Length,
 };
 use iced_aw::number_input;
-use sf_api::gamestate::underworld::UnderWorldResourceType;
+use sf_api::{gamestate::underworld::UnderWorldResourceType, misc::EnumMapGet};
 
 use crate::{
     config::Config,
@@ -48,18 +48,22 @@ pub fn view_underworld<'a>(
     let mut left_col = column!().align_items(Alignment::Center).spacing(10);
     left_col = left_col.push(row!(
         text("Lured Today:").width(Length::FillPortion(1)),
-        text(format!("{}/5", info.underworld.battles_today))
+        text(format!("{}/5", info.underworld.lured_today))
             .width(Length::FillPortion(1))
             .horizontal_alignment(Horizontal::Right),
     ));
 
-    let souls =
-        &info.underworld.resources[UnderWorldResourceType::Souls as usize];
+    let souls = info.underworld.souls_current;
+    let souls_limit = info
+        .underworld
+        .production
+        .get(UnderWorldResourceType::Souls)
+        .limit;
     left_col = left_col.push(row!(
         text("Souls Filled:").width(Length::FillPortion(1)),
         text(format!(
             "{:.0}%",
-            (souls.current as f32 / (souls.limit.max(1)) as f32) * 100.0
+            (souls as f32 / (souls_limit.max(1)) as f32) * 100.0
         ))
         .width(Length::FillPortion(1))
         .horizontal_alignment(Horizontal::Right),
@@ -68,6 +72,7 @@ pub fn view_underworld<'a>(
     let avg_lvl = info
         .underworld
         .units
+        .as_array()
         .iter()
         .map(|a| a.level as u64)
         .sum::<u64>() as f32
@@ -250,7 +255,7 @@ pub fn view_underworld<'a>(
 
         target_list = target_list.push(row!(
             column!(button("Lure").on_press_maybe(
-                if info.underworld.battles_today >= 5 {
+                if info.underworld.lured_today >= 5 {
                     None
                 } else {
                     Some(Message::PlayerLure {

@@ -14,7 +14,7 @@ use iced::{
 use sf_api::{
     error::SFError,
     gamestate::GameState,
-    session::{CharacterSession, PWHash, ServerConnection},
+    session::{Session, PWHash, ServerConnection},
     sso::{SFAccount, SSOAuth, SSOProvider},
 };
 use tokio::time::sleep;
@@ -35,7 +35,7 @@ pub struct LoginState {
     pub remember_me: bool,
     pub error: Option<String>,
     pub active_sso: Vec<SSOLogin>,
-    pub import_que: Vec<CharacterSession>,
+    pub import_que: Vec<Session>,
     pub google_sso: Arc<Mutex<SSOStatus>>,
     pub steam_sso: Arc<Mutex<SSOStatus>>,
 }
@@ -403,7 +403,7 @@ pub struct SSOValidator {
 impl SSOValidator {
     pub async fn check(
         &self,
-    ) -> Result<Option<(Vec<Result<CharacterSession, SFError>>, String)>, SFError>
+    ) -> Result<Option<(Vec<Result<Session, SFError>>, String)>, SFError>
     {
         sleep(Duration::from_millis(fastrand::u64(500..=1000))).await;
         let mut auth = SSOAuth::new(self.provider).await?;
@@ -451,7 +451,7 @@ impl Helper {
             return Command::none();
         };
 
-        let session = sf_api::session::CharacterSession::new_hashed(
+        let session = sf_api::session::Session::new_hashed(
             &name,
             pw_hash.clone(),
             con,
@@ -462,7 +462,7 @@ impl Helper {
 
     pub fn login(
         &mut self,
-        mut session: sf_api::session::CharacterSession,
+        mut session: sf_api::session::Session,
         remember: bool,
         auth: PlayerAuth,
     ) -> Command<Message> {
