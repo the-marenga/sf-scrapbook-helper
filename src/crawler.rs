@@ -130,9 +130,16 @@ impl Crawler {
                             .flatten()
                             .filter_map(|a| a.equipment_ident())
                             .collect();
-                        let stats =
-                            player.base_attributes.as_array().iter().sum::<u32>()
-                                + player.bonus_attributes.as_array().iter().sum::<u32>();
+                        let stats = player
+                            .base_attributes
+                            .as_array()
+                            .iter()
+                            .sum::<u32>()
+                            + player
+                                .bonus_attributes
+                                .as_array()
+                                .iter()
+                                .sum::<u32>();
                         CharacterInfo {
                             equipment,
                             name: player.name,
@@ -162,8 +169,8 @@ impl Crawler {
             CrawlAction::InitTodo => {
                 drop(session);
                 let gs = self.state.gs.lock().unwrap();
-                let pages =
-                    (gs.hall_of_fames.players_total as usize).div_ceil(PER_PAGE);
+                let pages = (gs.hall_of_fames.players_total as usize)
+                    .div_ceil(PER_PAGE);
                 drop(gs);
                 let mut que = self.que.lock().unwrap();
                 que.todo_pages = (0..pages).collect();
@@ -186,8 +193,7 @@ impl CrawlerState {
         server: ServerConnection,
     ) -> Result<Self, SFError> {
         let password = name.chars().rev().collect::<String>();
-        let mut session =
-            Session::new(&name, &password, server.clone());
+        let mut session = Session::new(&name, &password, server.clone());
         debug!("Logging in {name} on {}", session.server_url());
         if let Ok(resp) = session.login().await {
             debug!("Successfully logged in {name} on {}", session.server_url());

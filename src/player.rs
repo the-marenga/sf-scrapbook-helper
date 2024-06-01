@@ -38,9 +38,13 @@ pub struct UnderworldInfo {
 impl UnderworldInfo {
     pub fn new(gs: &GameState) -> Option<Self> {
         let underworld = gs.underworld.as_ref()?.clone();
-        let avg_lvl =
-            underworld.units.as_array().iter().map(|a| a.level as u64).sum::<u64>() as f32
-                / 3.0;
+        let avg_lvl = underworld
+            .units
+            .as_array()
+            .iter()
+            .map(|a| a.level as u64)
+            .sum::<u64>() as f32
+            / 3.0;
         Some(Self {
             underworld,
             best: Default::default(),

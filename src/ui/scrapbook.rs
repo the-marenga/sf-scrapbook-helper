@@ -64,7 +64,11 @@ pub fn view_scrapbook<'a>(
         text("Total Attributes:").width(Length::FillPortion(1)),
         text(
             gs.character.attribute_basis.as_array().iter().sum::<u32>()
-            + gs.character.attribute_additions.as_array().iter().sum::<u32>()
+                + gs.character
+                    .attribute_additions
+                    .as_array()
+                    .iter()
+                    .sum::<u32>()
         )
         .width(Length::FillPortion(1))
         .horizontal_alignment(Horizontal::Right)
