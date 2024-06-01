@@ -23,6 +23,7 @@ use crate::{
 
 #[derive(Debug, Clone)]
 pub enum Message {
+    FontLoaded(Result<(), iced::font::Error>),
     CrawlAllRes {
         servers: Option<Vec<String>>,
         concurrency: usize,
@@ -1524,6 +1525,7 @@ impl Helper {
                 }
                 return Command::batch(res);
             }
+            Message::FontLoaded(_) => {},
         }
         Command::none()
     }

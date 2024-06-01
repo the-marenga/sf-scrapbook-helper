@@ -11,9 +11,9 @@ chrono = "0.4"
 clap = { version = "4.5.4", features = ["derive"] }
 clap-num = "1.1.1"
 fastrand = "2.0"
-iced = { version = "0.12", features = ["tokio", "lazy", "image", "advanced"] }
+iced = { version = "0.12", default-features = false, features = ["tokio", "lazy", "image", "advanced"] }
 iced_aw = { version = "0.8", default-features = false, features = [
-    "number_input",
+    "number_input", "icons"
 ] }
 image = { version = "0.25", default-features = false, features = ["ico", "webp"] }
 indicatif = "0.17.8"
