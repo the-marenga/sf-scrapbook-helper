@@ -5,7 +5,7 @@ use iced::Command;
 use log::{error, trace, warn};
 use sf_api::{
     gamestate::GameState,
-    session::{CharacterSession, PWHash, Response},
+    session::{PWHash, Response, Session},
     sso::SSOProvider,
 };
 use tokio::time::sleep;
@@ -59,11 +59,11 @@ pub enum Message {
     PlayerRelogSuccess {
         ident: AccountIdent,
         gs: Box<GameState>,
-        session: Box<CharacterSession>,
+        session: Box<Session>,
     },
     PlayerRelogDelay {
         ident: AccountIdent,
-        session: Box<CharacterSession>,
+        session: Box<Session>,
     },
     CopyBattleOrder {
         ident: AccountIdent,
@@ -88,7 +88,7 @@ pub enum Message {
     OpenLink(String),
     SSOSuccess {
         auth_name: String,
-        chars: Vec<CharacterSession>,
+        chars: Vec<Session>,
         provider: SSOProvider,
     },
     SSORetry,
@@ -106,7 +106,7 @@ pub enum Message {
     SSOLoginSuccess {
         name: String,
         pass: PWHash,
-        chars: Vec<CharacterSession>,
+        chars: Vec<Session>,
         remember: bool,
     },
     ViewSettings,
@@ -125,18 +125,18 @@ pub enum Message {
     },
     PlayerCommandFailed {
         ident: AccountIdent,
-        session: Box<CharacterSession>,
+        session: Box<Session>,
         attempt: u64,
     },
     PlayerAttackResult {
         ident: AccountIdent,
-        session: Box<CharacterSession>,
+        session: Box<Session>,
         against: AttackTarget,
         resp: Box<Response>,
     },
     PlayerLureResult {
         ident: AccountIdent,
-        session: Box<CharacterSession>,
+        session: Box<Session>,
         against: LureTarget,
         resp: Box<Response>,
     },
@@ -194,7 +194,7 @@ pub enum Message {
     LoggininSuccess {
         ident: AccountIdent,
         gs: Box<GameState>,
-        session: Box<CharacterSession>,
+        session: Box<Session>,
         remember: bool,
     },
     LoggininFailure {
@@ -491,7 +491,7 @@ impl Helper {
                     }
                 }
 
-                let total_players = gs.other_players.total_player;
+                let total_players = gs.hall_of_fames.players_total;
                 let total_pages = (total_players as usize).div_ceil(PER_PAGE);
 
                 player.scrapbook_info = ScrapbookInfo::new(&gs, &self.config);
@@ -666,7 +666,7 @@ impl Helper {
                         | AccountStatus::FatalError(_) => None,
                         AccountStatus::Idle(_, gs)
                         | AccountStatus::Busy(gs) => {
-                            Some(gs.other_players.total_player)
+                            Some(gs.hall_of_fames.players_total)
                         }
                     }
                 }) else {
@@ -1281,7 +1281,7 @@ impl Helper {
                 let Some(ud) = &account.underworld_info else {
                     return Command::none();
                 };
-                if ud.underworld.battles_today >= 5 {
+                if ud.underworld.lured_today >= 5 {
                     return Command::none();
                 }
 
@@ -1365,7 +1365,7 @@ impl Helper {
                     last.has_player_won,
                 ));
 
-                if let Some(underworld) = s.unlocks.underworld.as_ref() {
+                if let Some(underworld) = s.underworld.as_ref() {
                     si.underworld = underworld.clone();
                 }
                 lock.put_session(session);
@@ -1391,7 +1391,7 @@ impl Helper {
                 };
 
                 if let Some(sbi) = &mut account.underworld_info {
-                    if let Some(sb) = &gs.unlocks.underworld {
+                    if let Some(sb) = &gs.underworld {
                         sbi.underworld = sb.clone();
                     }
                 }

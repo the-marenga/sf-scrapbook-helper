@@ -8,7 +8,7 @@ use log::trace;
 use nohash_hasher::IntMap;
 use sf_api::{
     gamestate::{underworld::Underworld, unlockables::ScrapBook, GameState},
-    session::CharacterSession,
+    session::Session,
 };
 use tokio::time::sleep;
 
@@ -37,10 +37,14 @@ pub struct UnderworldInfo {
 
 impl UnderworldInfo {
     pub fn new(gs: &GameState) -> Option<Self> {
-        let underworld = gs.unlocks.underworld.as_ref()?.clone();
-        let avg_lvl =
-            underworld.units.iter().map(|a| a.level as u64).sum::<u64>() as f32
-                / 3.0;
+        let underworld = gs.underworld.as_ref()?.clone();
+        let avg_lvl = underworld
+            .units
+            .as_array()
+            .iter()
+            .map(|a| a.level as u64)
+            .sum::<u64>() as f32
+            / 3.0;
         Some(Self {
             underworld,
             best: Default::default(),
@@ -63,7 +67,7 @@ pub struct ScrapbookInfo {
 impl ScrapbookInfo {
     pub fn new(gs: &GameState, config: &Config) -> Option<Self> {
         Some(Self {
-            scrapbook: gs.unlocks.scrapbok.as_ref()?.clone(),
+            scrapbook: gs.character.scrapbok.as_ref()?.clone(),
             best: Default::default(),
             max_level: gs.character.level,
             blacklist: Default::default(),
@@ -96,14 +100,14 @@ impl AccountInfo {
 
 pub enum AccountStatus {
     LoggingIn,
-    Idle(Box<CharacterSession>, Box<GameState>),
+    Idle(Box<Session>, Box<GameState>),
     Busy(Box<GameState>),
     FatalError(String),
     LoggingInAgain,
 }
 
 impl AccountStatus {
-    pub fn take_session(&mut self) -> Option<Box<CharacterSession>> {
+    pub fn take_session(&mut self) -> Option<Box<Session>> {
         let mut res = None;
         *self = match std::mem::replace(self, AccountStatus::LoggingIn) {
             AccountStatus::Idle(a, b) => {
@@ -115,7 +119,7 @@ impl AccountStatus {
         res
     }
 
-    pub fn put_session(&mut self, session: Box<CharacterSession>) {
+    pub fn put_session(&mut self, session: Box<Session>) {
         *self = match std::mem::replace(self, AccountStatus::LoggingIn) {
             AccountStatus::Busy(a) => AccountStatus::Idle(session, a),
             x => x,
@@ -171,7 +175,7 @@ impl AutoPoll {
         trace!("Sending poll {:?}", self.ident);
 
         let Ok(resp) = session
-            .send_command(&sf_api::command::Command::UpdatePlayer)
+            .send_command(&sf_api::command::Command::Update)
             .await
         else {
             return Message::PlayerCommandFailed {

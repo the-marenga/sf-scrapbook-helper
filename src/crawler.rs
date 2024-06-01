@@ -83,7 +83,7 @@ impl Crawler {
                 };
 
                 let mut lock = self.que.lock().unwrap();
-                for acc in gs.other_players.hall_of_fame.drain(..) {
+                for acc in gs.hall_of_fames.players.drain(..) {
                     if acc.level > lock.max_level || acc.level < lock.min_level
                     {
                         match lock.lvl_skipped_accounts.entry(acc.level) {
@@ -120,18 +120,26 @@ impl Crawler {
                     };
                 }
 
-                let character = match gs.other_players.remove_name(name) {
+                let character = match gs.lookup.remove_name(name) {
                     Some(player) => {
                         let equipment = player
                             .equipment
                             .0
+                            .as_array()
                             .iter()
                             .flatten()
                             .filter_map(|a| a.equipment_ident())
                             .collect();
-                        let stats =
-                            player.base_attributes.0.iter().sum::<u32>()
-                                + player.bonus_attributes.0.iter().sum::<u32>();
+                        let stats = player
+                            .base_attributes
+                            .as_array()
+                            .iter()
+                            .sum::<u32>()
+                            + player
+                                .bonus_attributes
+                                .as_array()
+                                .iter()
+                                .sum::<u32>();
                         CharacterInfo {
                             equipment,
                             name: player.name,
@@ -161,8 +169,8 @@ impl Crawler {
             CrawlAction::InitTodo => {
                 drop(session);
                 let gs = self.state.gs.lock().unwrap();
-                let pages =
-                    (gs.other_players.total_player as usize).div_ceil(PER_PAGE);
+                let pages = (gs.hall_of_fames.players_total as usize)
+                    .div_ceil(PER_PAGE);
                 drop(gs);
                 let mut que = self.que.lock().unwrap();
                 que.todo_pages = (0..pages).collect();
@@ -176,7 +184,7 @@ impl Crawler {
 
 #[derive(Debug)]
 pub struct CrawlerState {
-    pub session: RwLock<CharacterSession>,
+    pub session: RwLock<Session>,
     pub gs: Mutex<GameState>,
 }
 impl CrawlerState {
@@ -185,8 +193,7 @@ impl CrawlerState {
         server: ServerConnection,
     ) -> Result<Self, SFError> {
         let password = name.chars().rev().collect::<String>();
-        let mut session =
-            CharacterSession::new(&name, &password, server.clone());
+        let mut session = Session::new(&name, &password, server.clone());
         debug!("Logging in {name} on {}", session.server_url());
         if let Ok(resp) = session.login().await {
             debug!("Successfully logged in {name} on {}", session.server_url());
@@ -230,7 +237,7 @@ impl CrawlerState {
             session.server_url()
         );
 
-        let (session, resp) = CharacterSession::register(
+        let (session, resp) = Session::register(
             &name,
             &password,
             server.clone(),
