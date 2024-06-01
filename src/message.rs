@@ -298,7 +298,8 @@ impl Helper {
                     return Command::none();
                 };
                 let lock = que.lock().unwrap();
-                if !lock.todo_pages.is_empty()
+                if server.headless_progress.is_none()
+                    || !lock.todo_pages.is_empty()
                     || !lock.todo_accounts.is_empty()
                     || player_info.is_empty()
                 {
@@ -786,7 +787,7 @@ impl Helper {
                             sleep(Duration::from_secs(5)).await;
                             return Err(session);
                         };
-                        sleep(Duration::from_secs(5)).await;
+                        sleep(Duration::from_secs(10)).await;
 
                         let Ok(resp) = session
                             .send_command(
@@ -1525,7 +1526,7 @@ impl Helper {
                 }
                 return Command::batch(res);
             }
-            Message::FontLoaded(_) => {},
+            Message::FontLoaded(_) => {}
         }
         Command::none()
     }

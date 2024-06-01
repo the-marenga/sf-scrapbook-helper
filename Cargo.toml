@@ -34,5 +34,8 @@ toml = "0.8"
 strip = true
 lto = true
 
+[profile.dev]
+opt-level = 1
+
 [build-dependencies]
 winres = "0.1"
