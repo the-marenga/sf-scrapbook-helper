@@ -122,6 +122,7 @@ pub enum AvailableTheme {
     Oxocarbon,
 }
 
+#[allow(clippy::to_string_trait_impl)]
 impl ToString for AvailableTheme {
     fn to_string(&self) -> String {
         use AvailableTheme::*;

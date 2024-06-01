@@ -82,7 +82,8 @@ pub fn view_scrapbook<'a>(
         number_input(si.max_level, 9999, move |nv| Message::PlayerSetMaxLvl {
             ident: aid,
             max: nv,
-        });
+        })
+        .style(iced_aw::NumberInputStyles::Default);
 
     let max_lvl = row!(text("Max Level:"), horizontal_space(), max_lvl)
         .align_items(Alignment::Center);

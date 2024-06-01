@@ -108,7 +108,6 @@ fn main() -> iced::Result {
         width: 700.0,
         height: 400.0,
     });
-
     settings.window.visible = !is_headless;
 
     let raw_img = include_bytes!("../assets/icon.ico");
@@ -122,7 +121,6 @@ fn main() -> iced::Result {
             iced::window::icon::from_rgba(img.into_bytes(), width, height).ok();
         settings.window.icon = icon;
     }
-
     Helper::run(settings)
 }
 
@@ -367,6 +365,10 @@ impl Application for Helper {
             }
             helper.cli_crawling = Some(info);
         }
+        commands.push(
+            iced::font::load(iced_aw::BOOTSTRAP_FONT_BYTES)
+                .map(Message::FontLoaded),
+        );
 
         (helper, Command::batch(commands))
     }

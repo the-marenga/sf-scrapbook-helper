@@ -177,6 +177,7 @@ impl AutoPoll {
             return Message::PlayerCommandFailed {
                 ident: self.ident,
                 session,
+                attempt: 0,
             };
         };
         let mut lock = self.player_status.lock().unwrap();
@@ -191,6 +192,7 @@ impl AutoPoll {
             return Message::PlayerCommandFailed {
                 ident: self.ident,
                 session,
+                attempt: 0,
             };
         }
         lock.put_session(session);
