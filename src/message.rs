@@ -776,35 +776,18 @@ impl Helper {
                 let mut lock = player.status.lock().unwrap();
                 *lock = AccountStatus::LoggingInAgain;
                 drop(lock);
-
+                warn!("Logging in {ident:?} again");
                 return Command::perform(
                     async move {
                         let Ok(resp) = session.login().await else {
                             sleep(Duration::from_secs(5)).await;
                             return Err(session);
                         };
-                        let Ok(mut gamestate) = GameState::new(resp) else {
+                        let Ok(gamestate) = GameState::new(resp) else {
                             sleep(Duration::from_secs(5)).await;
                             return Err(session);
                         };
                         sleep(Duration::from_secs(10)).await;
-
-                        let Ok(resp) = session
-                            .send_command(
-                                &sf_api::command::Command::UpdatePlayer,
-                            )
-                            .await
-                        else {
-                            sleep(Duration::from_secs(5)).await;
-                            return Err(session);
-                        };
-
-                        if gamestate.update(resp).is_err() {
-                            sleep(Duration::from_secs(5)).await;
-                            return Err(session);
-                        };
-
-                        sleep(Duration::from_secs(5)).await;
                         Ok((Box::new(gamestate), session))
                     },
                     move |res| match res {
