@@ -13,7 +13,7 @@ use tokio::time::sleep;
 use self::{
     backup::{get_newest_backup, restore_backup, RestoreData},
     login::{SSOIdent, SSOLogin, SSOLoginStatus},
-    ui::{underworld::LureTarget, BestSort},
+    ui::underworld::LureTarget,
 };
 use crate::{
     crawler::CrawlerState,
@@ -31,16 +31,11 @@ pub enum Message {
     NextCLICrawling,
     AdvancedLevelRestrict(bool),
     ShowClasses(bool),
-    ChangeSort {
-        ident: AccountIdent,
-        new: BestSort,
-    },
     CrawlerSetMinMax {
         server: ServerID,
         min: u32,
         max: u32,
     },
-    ChangeDefaultSort(BestSort),
     UpdateResult(bool),
     PlayerSetMaxUndergroundLvl {
         ident: AccountIdent,
@@ -467,8 +462,8 @@ impl Helper {
                 if remember {
                     match &player.auth {
                         PlayerAuth::Normal(hash) => {
-                            self.config.accounts.retain(|a| match &a.creds {
-                                AccountCreds::Regular {
+                            self.config.accounts.retain(|a| match &a {
+                                AccountConfig::Regular {
                                     name,
                                     server: server_url,
                                     ..
@@ -478,7 +473,7 @@ impl Helper {
                                 }
                                 _ => true,
                             });
-                            self.config.accounts.push(CharacterConfig::new(
+                            self.config.accounts.push(AccountConfig::new(
                                 AccountCreds::Regular {
                                     name: player.name.clone(),
                                     pw_hash: hash.clone(),
@@ -979,16 +974,15 @@ impl Helper {
                 };
 
                 if remember {
-                    self.config.accounts.retain(|a| match &a.creds {
-                        AccountCreds::Regular { .. } => true,
-                        AccountCreds::SF { name: uuu, .. } => &name != uuu,
+                    self.config.accounts.retain(|a| match &a {
+                        AccountConfig::Regular { .. } => true,
+                        AccountConfig::SF { name: uuu, .. } => &name != uuu,
                     });
 
-                    self.config.accounts.push(CharacterConfig {
-                        creds: AccountCreds::SF {
-                            name,
-                            pw_hash: pass,
-                        },
+                    self.config.accounts.push(AccountConfig::SF {
+                        name,
+                        pw_hash: pass,
+                        characters: Default::default(),
                     });
                     _ = self.config.write();
                 }
@@ -1419,24 +1413,6 @@ impl Helper {
             Message::SetAutoPoll(new_val) => {
                 self.config.auto_poll = new_val;
                 _ = self.config.write();
-            }
-            Message::ChangeDefaultSort(new) => {
-                self.config.default_best_sort = new;
-                _ = self.config.write();
-            }
-            Message::ChangeSort { ident, new } => {
-                let Some(server) = self.servers.get_mut(&ident.server_id)
-                else {
-                    return Command::none();
-                };
-                let Some(account) = server.accounts.get_mut(&ident.account)
-                else {
-                    return Command::none();
-                };
-
-                account.best_sort = new;
-
-                return self.update_best(ident, false);
             }
             Message::AdvancedLevelRestrict(val) => {
                 self.config.show_crawling_restrict = val;

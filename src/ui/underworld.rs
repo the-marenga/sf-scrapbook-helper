@@ -8,7 +8,6 @@ use iced::{
     Alignment, Element, Length,
 };
 use iced_aw::number_input;
-use sf_api::{gamestate::underworld::UnderWorldResourceType, misc::EnumMapGet};
 
 use crate::{
     config::Config,
@@ -54,11 +53,8 @@ pub fn view_underworld<'a>(
     ));
 
     let souls = info.underworld.souls_current;
-    let souls_limit = info
-        .underworld
-        .production
-        .get(UnderWorldResourceType::Souls)
-        .limit;
+    let souls_limit = info.underworld.souls_limit;
+
     left_col = left_col.push(row!(
         text("Souls Filled:").width(Length::FillPortion(1)),
         text(format!(

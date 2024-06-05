@@ -11,7 +11,6 @@ use iced::{
 };
 use iced_aw::number_input;
 
-use super::BestSort;
 use crate::{
     config::Config,
     crawler::CrawlingOrder,
@@ -92,21 +91,6 @@ pub fn view_scrapbook<'a>(
     let max_lvl = row!(text("Max Level:"), horizontal_space(), max_lvl)
         .align_items(Alignment::Center);
     left_col = left_col.push(max_lvl);
-
-    let sort_picker = pick_list(
-        [BestSort::Level, BestSort::Attributes],
-        Some(player.best_sort),
-        move |nv| Message::ChangeSort {
-            ident: aid,
-            new: nv,
-        },
-    );
-
-    let sort_best = row!(text("Sort Best: "), horizontal_space(), sort_picker)
-        .width(Length::Fill)
-        .align_items(Alignment::Center);
-
-    left_col = left_col.push(sort_best);
 
     match &gs.arena.next_free_fight {
         Some(x) if *x >= Local::now() => {

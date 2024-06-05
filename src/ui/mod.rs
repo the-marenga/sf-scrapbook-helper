@@ -1,5 +1,3 @@
-use std::fmt::Display;
-
 use iced::{
     theme,
     widget::{
@@ -9,7 +7,6 @@ use iced::{
     Alignment, Element, Length,
 };
 use iced_aw::number_input;
-use serde::{Deserialize, Serialize};
 
 use self::{scrapbook::view_scrapbook, underworld::view_underworld};
 use crate::{
@@ -180,19 +177,8 @@ impl Helper {
             .width(Length::Fill)
             .align_items(Alignment::Center);
 
-        let sort_picker = pick_list(
-            [BestSort::Level, BestSort::Attributes],
-            Some(self.config.default_best_sort),
-            Message::ChangeDefaultSort,
-        )
-        .width(Length::Fixed(200.0));
-
-        let sort_best = row!(text("Default Best Sort: "), sort_picker)
-            .width(Length::Fill)
-            .align_items(Alignment::Center);
-
         let settings_column = column!(
-            theme_row, auto_fetch_hof, auto_poll, max_threads, sort_best,
+            theme_row, auto_fetch_hof, auto_poll, max_threads,
             crawling_restrict, show_class_icons
         )
         .width(Length::Fixed(300.0))
@@ -213,7 +199,7 @@ impl Helper {
         let mut accounts = column!()
             .padding(20)
             .spacing(10)
-            .width(Length::Fixed(400.0))
+            .width(Length::Fill)
             .align_items(Alignment::Center);
 
         for server in self.servers.0.values() {
@@ -246,23 +232,5 @@ impl Helper {
             .width(Length::Fill)
             .align_items(Alignment::Center)
             .into()
-    }
-}
-
-#[derive(
-    Debug, Default, PartialEq, Eq, Clone, Copy, Serialize, Deserialize,
-)]
-pub enum BestSort {
-    #[default]
-    Level,
-    Attributes,
-}
-
-impl Display for BestSort {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(match self {
-            BestSort::Level => "Level",
-            BestSort::Attributes => "Attributes",
-        })
     }
 }

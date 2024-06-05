@@ -16,7 +16,7 @@ use std::{
 
 use chrono::{Local, NaiveDate, Utc};
 use clap::{Parser, Subcommand};
-use config::{CharacterConfig, Config};
+use config::{AccountConfig, Config};
 use crawler::{CrawlAction, Crawler, CrawlerState, CrawlingOrder, WorkerQue};
 use iced::{
     executor, subscription, theme,
@@ -585,23 +585,16 @@ impl Helper {
             let mut best_players =
                 find_best(&per_player_counts, player_info, 20);
 
-            match account.best_sort {
-                ui::BestSort::Level => {
-                    // Find best already sorts by level
+            best_players.sort_by(|a, b| {
+                if a.missing != b.missing {
+                    return b.missing.cmp(&a.missing);
                 }
-                ui::BestSort::Attributes => {
-                    best_players.sort_by(|a, b| {
-                        if a.missing != b.missing {
-                            return b.missing.cmp(&a.missing);
-                        }
 
-                        match (a.info.stats, b.info.stats) {
-                            (Some(a), Some(b)) => a.cmp(&b),
-                            _ => a.info.level.cmp(&b.info.level),
-                        }
-                    });
+                match (a.info.stats, b.info.stats) {
+                    (Some(a), Some(b)) => a.cmp(&b),
+                    _ => a.info.level.cmp(&b.info.level),
                 }
-            }
+            });
 
             si.best = best_players;
 

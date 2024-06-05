@@ -13,8 +13,8 @@ use sf_api::{
 use tokio::time::sleep;
 
 use crate::{
-    config::Config, login::PlayerAuth, message::Message, ui::BestSort,
-    AccountIdent, AttackTarget, CharacterInfo,
+    config::Config, login::PlayerAuth, message::Message, AccountIdent,
+    AttackTarget, CharacterInfo,
 };
 
 pub struct AccountInfo {
@@ -25,7 +25,6 @@ pub struct AccountInfo {
     pub status: Arc<Mutex<AccountStatus>>,
     pub scrapbook_info: Option<ScrapbookInfo>,
     pub underworld_info: Option<UnderworldInfo>,
-    pub best_sort: BestSort,
 }
 
 pub struct UnderworldInfo {
@@ -61,11 +60,10 @@ pub struct ScrapbookInfo {
     pub blacklist: IntMap<u32, (String, usize)>,
     pub attack_log: Vec<(DateTime<Local>, AttackTarget, bool)>,
     pub auto_battle: bool,
-    pub best_sort: BestSort,
 }
 
 impl ScrapbookInfo {
-    pub fn new(gs: &GameState, config: &Config) -> Option<Self> {
+    pub fn new(gs: &GameState, _config: &Config) -> Option<Self> {
         Some(Self {
             scrapbook: gs.character.scrapbok.as_ref()?.clone(),
             best: Default::default(),
@@ -73,7 +71,6 @@ impl ScrapbookInfo {
             blacklist: Default::default(),
             attack_log: Default::default(),
             auto_battle: false,
-            best_sort: config.default_best_sort,
         })
     }
 }
@@ -83,7 +80,7 @@ impl AccountInfo {
         name: &str,
         auth: PlayerAuth,
         account_ident: AccountIdent,
-        config: &Config,
+        _config: &Config,
     ) -> AccountInfo {
         AccountInfo {
             name: name.to_string(),
@@ -93,7 +90,6 @@ impl AccountInfo {
             last_updated: Local::now(),
             status: Arc::new(Mutex::new(AccountStatus::LoggingIn)),
             ident: account_ident,
-            best_sort: config.default_best_sort,
         }
     }
 }

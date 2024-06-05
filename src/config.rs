@@ -1,12 +1,11 @@
+use ahash::HashMap;
 use iced::Theme;
 use serde::{Deserialize, Serialize};
 use sf_api::session::PWHash;
 
-use crate::ui::BestSort;
-
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Config {
-    pub accounts: Vec<CharacterConfig>,
+    pub accounts: Vec<AccountConfig>,
     pub theme: AvailableTheme,
     pub base_name: String,
     pub auto_fetch_newest: bool,
@@ -14,8 +13,6 @@ pub struct Config {
     pub auto_poll: bool,
     #[serde(default = "default_threads")]
     pub max_threads: usize,
-    #[serde(default)]
-    pub default_best_sort: BestSort,
     #[serde(default)]
     pub show_crawling_restrict: bool,
     #[serde(default = "default_class_icons")]
@@ -50,7 +47,6 @@ impl Default for Config {
             auto_fetch_newest: true,
             max_threads: 10,
             auto_poll: false,
-            default_best_sort: BestSort::Level,
             show_crawling_restrict: false,
             show_class_icons: true,
         }
@@ -83,14 +79,77 @@ pub enum AccountCreds {
     },
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct CharacterConfig {
-    #[serde(flatten)]
-    pub creds: AccountCreds,
+impl From<AccountConfig> for AccountCreds {
+    fn from(value: AccountConfig) -> Self {
+        match value {
+            AccountConfig::Regular {
+                name,
+                pw_hash,
+                server,
+                ..
+            } => AccountCreds::Regular {
+                name,
+                pw_hash,
+                server,
+            },
+            AccountConfig::SF { name, pw_hash, .. } => {
+                AccountCreds::SF { name, pw_hash }
+            }
+        }
+    }
 }
-impl CharacterConfig {
-    pub fn new(creds: AccountCreds) -> CharacterConfig {
-        CharacterConfig { creds }
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(untagged)]
+pub enum AccountConfig {
+    Regular {
+        name: String,
+        pw_hash: PWHash,
+        server: String,
+        #[serde(flatten)]
+        config: CharacterConfig,
+    },
+    SF {
+        name: String,
+        pw_hash: PWHash,
+        #[serde(default)]
+        characters: HashMap<SFAccountIdent, CharacterConfig>,
+    },
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+pub struct CharacterConfig {
+    #[serde(default)]
+    login: bool,
+    #[serde(default)]
+    auto_battle: bool,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, Hash, PartialEq, Eq)]
+pub struct SFAccountIdent {
+    name: String,
+    server: String,
+}
+
+impl AccountConfig {
+    pub fn new(creds: AccountCreds) -> AccountConfig {
+        match creds {
+            AccountCreds::Regular {
+                name,
+                pw_hash,
+                server,
+            } => AccountConfig::Regular {
+                name,
+                pw_hash,
+                server,
+                config: Default::default(),
+            },
+            AccountCreds::SF { name, pw_hash } => AccountConfig::SF {
+                name,
+                pw_hash,
+                characters: Default::default(),
+            },
+        }
     }
 }
 

@@ -20,11 +20,9 @@ use sf_api::{
 use tokio::time::sleep;
 
 use crate::{
-    config::{AccountCreds, CharacterConfig},
-    get_server_code,
-    message::Message,
-    top_bar, AccountID, AccountIdent, AccountInfo, AccountPage, Helper,
-    ServerIdent, View,
+    config::AccountConfig, get_server_code, message::Message, top_bar,
+    AccountID, AccountIdent, AccountInfo, AccountPage, Helper, ServerIdent,
+    View,
 };
 
 pub struct LoginState {
@@ -68,7 +66,7 @@ pub enum SSOLoginStatus {
 impl LoginState {
     pub fn view(
         &self,
-        accounts: &[CharacterConfig],
+        accounts: &[AccountConfig],
         has_active: bool,
     ) -> Element<Message> {
         let login_type_button = |label, filter, current_filter| {
@@ -231,11 +229,12 @@ impl LoginState {
                     column!().spacing(10).width(Length::Fill).padding(20);
 
                 for acc in accounts {
-                    match &acc.creds {
-                        AccountCreds::Regular {
+                    match &acc {
+                        AccountConfig::Regular {
                             name,
                             server,
                             pw_hash,
+                            ..
                         } => {
                             let login_msg = Message::LoginRegular {
                                 name: name.clone(),
@@ -261,7 +260,7 @@ impl LoginState {
                             .width(Length::Fill);
                             accounts_col = accounts_col.push(button);
                         }
-                        AccountCreds::SF { name, pw_hash } => {
+                        AccountConfig::SF { name, pw_hash, .. } => {
                             let login_msg = Message::LoginSF {
                                 name: name.clone(),
                                 pwhash: pw_hash.clone(),
