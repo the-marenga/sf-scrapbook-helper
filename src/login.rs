@@ -230,16 +230,10 @@ impl LoginState {
 
                 for acc in accounts {
                     match &acc {
-                        AccountConfig::Regular {
-                            name,
-                            server,
-                            pw_hash,
-                            ..
-                        } => {
-                            let login_msg = Message::LoginRegular {
-                                name: name.clone(),
-                                pwhash: pw_hash.clone(),
-                                server: server.to_string(),
+                        AccountConfig::Regular { name, server, .. } => {
+                            let login_msg = Message::Login {
+                                account: acc.clone(),
+                                auto_login: false,
                             };
 
                             // TODO: Make sure they can not login twice
@@ -260,10 +254,10 @@ impl LoginState {
                             .width(Length::Fill);
                             accounts_col = accounts_col.push(button);
                         }
-                        AccountConfig::SF { name, pw_hash, .. } => {
-                            let login_msg = Message::LoginSF {
-                                name: name.clone(),
-                                pwhash: pw_hash.clone(),
+                        AccountConfig::SF { name, .. } => {
+                            let login_msg = Message::Login {
+                                account: acc.clone(),
+                                auto_login: false,
                             };
 
                             let button = button(
@@ -440,6 +434,7 @@ impl Helper {
         server: String,
         pw_hash: PWHash,
         remember: bool,
+        auto_login: bool,
     ) -> Command<Message> {
         let name = name.trim().to_string();
         let server = server.trim().to_string();
@@ -452,7 +447,7 @@ impl Helper {
         let session =
             sf_api::session::Session::new_hashed(&name, pw_hash.clone(), con);
 
-        self.login(session, remember, PlayerAuth::Normal(pw_hash))
+        self.login(session, remember, PlayerAuth::Normal(pw_hash), auto_login)
     }
 
     pub fn login(
@@ -460,6 +455,7 @@ impl Helper {
         mut session: sf_api::session::Session,
         remember: bool,
         auth: PlayerAuth,
+        auto_login: bool,
     ) -> Command<Message> {
         let server_ident = ServerIdent::new(session.server_url().as_str());
         let Some(connection) = ServerConnection::new(&server_ident.url) else {
@@ -492,10 +488,12 @@ impl Helper {
             };
             return Command::none();
         }
-        self.current_view = View::Account {
-            ident: info.ident,
-            page: AccountPage::Scrapbook,
-        };
+        if !auto_login {
+            self.current_view = View::Account {
+                ident: info.ident,
+                page: AccountPage::Scrapbook,
+            };
+        }
         server.accounts.insert(info.ident.account, info);
         Command::perform(
             async move {
@@ -524,6 +522,7 @@ impl Helper {
         name: String,
         pwhash: PWHash,
         remember_sf: bool,
+        auto_login: bool,
     ) -> Command<Message> {
         let ident = SSOIdent::SF(name.clone());
         self.login_state.login_typ = LoginType::SSOAccounts;
@@ -554,6 +553,7 @@ impl Helper {
                     pass: pwhash,
                     chars,
                     remember: remember_sf,
+                    auto_login,
                 },
                 Err(error) => Message::SSOLoginFailure {
                     name,

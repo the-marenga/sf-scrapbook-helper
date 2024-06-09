@@ -108,6 +108,7 @@ fn main() -> iced::Result {
         width: 700.0,
         height: 400.0,
     });
+    settings.default_text_size = 15.0f32.into();
     settings.window.visible = !is_headless;
 
     let raw_img = include_bytes!("../assets/icon.ico");
@@ -369,6 +370,53 @@ impl Application for Helper {
             iced::font::load(iced_aw::BOOTSTRAP_FONT_BYTES)
                 .map(Message::FontLoaded),
         );
+
+        let mut loading = 0;
+
+        for acc in &helper.config.accounts {
+            match acc {
+                AccountConfig::Regular { config, .. } => {
+                    if config.login {
+                        let acc = acc.clone();
+                        loading += 1;
+                        commands.push(Command::perform(
+                            async move {
+                                sleep(Duration::from_millis(
+                                    (loading - 1) * 200,
+                                ))
+                                .await
+                            },
+                            move |_| Message::Login {
+                                account: acc,
+                                auto_login: true,
+                            },
+                        ));
+                    }
+                }
+                AccountConfig::SF { characters, .. } => {
+                    if characters.iter().any(|a| a.config.login) {
+                        loading += 1;
+                        let acc = acc.clone();
+                        commands.push(Command::perform(
+                            async move {
+                                sleep(Duration::from_millis(
+                                    (loading - 1) * 200,
+                                ))
+                                .await
+                            },
+                            move |_| Message::Login {
+                                account: acc,
+                                auto_login: true,
+                            },
+                        ));
+                    }
+                }
+            }
+        }
+
+        if loading > 0 {
+            helper.current_view = View::Overview;
+        }
 
         (helper, Command::batch(commands))
     }

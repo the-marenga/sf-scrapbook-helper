@@ -1,6 +1,7 @@
 use std::{sync::Arc, time::Duration};
 
 use chrono::Local;
+use config::{CharacterConfig, SFAccCharacter, SFCharIdent};
 use iced::Command;
 use log::{error, trace, warn};
 use sf_api::{
@@ -98,11 +99,15 @@ pub enum Message {
     SSOImport {
         pos: usize,
     },
+    SSOImportAuto {
+        ident: SFCharIdent,
+    },
     SSOLoginSuccess {
         name: String,
         pass: PWHash,
         chars: Vec<Session>,
         remember: bool,
+        auto_login: bool,
     },
     ViewSettings,
     ChangeTheme(AvailableTheme),
@@ -142,14 +147,9 @@ pub enum Message {
         server: ServerID,
         new: CrawlingOrder,
     },
-    LoginRegular {
-        name: String,
-        pwhash: PWHash,
-        server: String,
-    },
-    LoginSF {
-        name: String,
-        pwhash: PWHash,
+    Login {
+        account: AccountConfig,
+        auto_login: bool,
     },
     RememberMe(bool),
     ClearHof(ServerID),
@@ -420,6 +420,7 @@ impl Helper {
                     self.login_state.name.clone(),
                     PWHash::new(&self.login_state.password),
                     self.login_state.remember_me,
+                    false,
                 )
             }
             Message::LoginPWInputChange(a) => self.login_state.password = a,
@@ -432,6 +433,7 @@ impl Helper {
                     self.login_state.server.to_string(),
                     pw_hash,
                     self.login_state.remember_me,
+                    Default::default(),
                 );
             }
             Message::LoginViewChanged(a) => {
@@ -680,13 +682,24 @@ impl Helper {
                 );
             }
             Message::RememberMe(val) => self.login_state.remember_me = val,
-            Message::LoginRegular {
-                name,
-                pwhash,
-                server,
-            } => {
-                return self.login_regular(name, server, pwhash, false);
-            }
+            Message::Login {
+                account,
+                auto_login,
+            } => match account {
+                AccountConfig::Regular {
+                    name,
+                    pw_hash,
+                    server,
+                    ..
+                } => {
+                    return self.login_regular(
+                        name, server, pw_hash, false, auto_login,
+                    );
+                }
+                AccountConfig::SF { name, pw_hash, .. } => {
+                    return self.login_sf_acc(name, pw_hash, false, auto_login);
+                }
+            },
             Message::OrderChange { server, new } => {
                 let Some(server) = self.servers.get_mut(&server) else {
                     return Command::none();
@@ -952,14 +965,12 @@ impl Helper {
             Message::ViewSettings => {
                 self.current_view = View::Settings;
             }
-            Message::LoginSF { name, pwhash } => {
-                return self.login_sf_acc(name, pwhash, false);
-            }
             Message::SSOLoginSuccess {
                 name,
                 pass,
                 mut chars,
                 remember,
+                auto_login,
             } => {
                 let ident = SSOIdent::SF(name.clone());
 
@@ -972,23 +983,62 @@ impl Helper {
                     // Already logged in
                     return Command::none();
                 };
-
                 if remember {
                     self.config.accounts.retain(|a| match &a {
                         AccountConfig::Regular { .. } => true,
-                        AccountConfig::SF { name: uuu, .. } => &name != uuu,
+                        AccountConfig::SF { name: uuu, .. } => {
+                            name.to_lowercase() != uuu.to_lowercase()
+                        }
                     });
 
                     self.config.accounts.push(AccountConfig::SF {
-                        name,
+                        name: name.clone(),
                         pw_hash: pass,
-                        characters: Default::default(),
+                        characters: chars
+                            .iter()
+                            .map(|a| SFAccCharacter {
+                                config: CharacterConfig::default(),
+                                ident: SFCharIdent {
+                                    name: a.username().to_string(),
+                                    server: a.server_url().as_str().to_string(),
+                                },
+                            })
+                            .collect(),
                     });
                     _ = self.config.write();
                 }
 
                 self.login_state.import_que.append(&mut chars);
+
                 res.status = SSOLoginStatus::Success;
+                if auto_login {
+                    for acc in &self.config.accounts {
+                        let AccountConfig::SF {
+                            name: s_name,
+                            characters,
+                            ..
+                        } = acc
+                        else {
+                            continue;
+                        };
+                        if s_name != &name {
+                            continue;
+                        }
+                        let mut commands = vec![];
+                        for SFAccCharacter { ident, config } in characters {
+                            if !config.login {
+                                continue;
+                            }
+                            let ident = ident.clone();
+                            commands
+                                .push(Command::perform(async {}, move |_| {
+                                    Message::SSOImportAuto { ident }
+                                }))
+                        }
+                        return Command::batch(commands);
+                    }
+                }
+
                 if self.current_view == View::Login
                     && self.login_state.login_typ == LoginType::SSOAccounts
                 {
@@ -998,7 +1048,7 @@ impl Helper {
             Message::SSOImport { pos } => {
                 // TODO: Bounds check this?
                 let account = self.login_state.import_que.remove(pos);
-                return self.login(account, false, PlayerAuth::SSO);
+                return self.login(account, false, PlayerAuth::SSO, false);
             }
             Message::ViewSubPage { player, page } => {
                 self.current_view = View::Account {
@@ -1521,6 +1571,21 @@ impl Helper {
                 let mut lock = account.status.lock().unwrap();
                 lock.put_session(session);
                 drop(lock);
+            }
+            Message::SSOImportAuto { ident } => {
+                let i_name = ident.name.to_lowercase();
+                let i_server = ServerIdent::new(&ident.server);
+
+                let pos = self.login_state.import_que.iter().position(|char| {
+                    let server = ServerIdent::new(char.server_url().as_str());
+                    let name = char.username().to_lowercase();
+                    server == i_server && name == i_name
+                });
+                let Some(pos) = pos else {
+                    return Command::none();
+                };
+                let account = self.login_state.import_que.remove(pos);
+                return self.login(account, false, PlayerAuth::SSO, true);
             }
         }
         Command::none()

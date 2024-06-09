@@ -113,22 +113,28 @@ pub enum AccountConfig {
         name: String,
         pw_hash: PWHash,
         #[serde(default)]
-        characters: HashMap<SFAccountIdent, CharacterConfig>,
+        characters: Vec<SFAccCharacter>,
     },
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct SFAccCharacter {
+    pub ident: SFCharIdent,
+    pub config: CharacterConfig,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
 pub struct CharacterConfig {
     #[serde(default)]
-    login: bool,
+    pub login: bool,
     #[serde(default)]
-    auto_battle: bool,
+    pub auto_battle: bool,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Hash, PartialEq, Eq)]
-pub struct SFAccountIdent {
-    name: String,
-    server: String,
+pub struct SFCharIdent {
+    pub name: String,
+    pub server: String,
 }
 
 impl AccountConfig {
