@@ -1,9 +1,10 @@
 use std::{
-    sync::{Arc, Mutex},
+    sync::{atomic::AtomicU64, Arc, Mutex},
     time::Duration,
 };
 
 use iced::{
+    futures::TryFutureExt,
     theme,
     widget::{
         self, button, checkbox, column, container, horizontal_space, row, text,
@@ -495,9 +496,19 @@ impl Helper {
             };
         }
         server.accounts.insert(info.ident.account, info);
+        static WAITING: AtomicU64 = AtomicU64::new(0);
+
         Command::perform(
             async move {
-                let resp = session.login().await?;
+                // This likely has some logic issues
+                let w =
+                    WAITING.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                if w > 0 {
+                    sleep(Duration::from_secs(w)).await;
+                }
+                let resp = session.login().await.inspect(|_| {
+                    WAITING.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+                })?;
                 let gs = GameState::new(resp)?;
                 let gs = Box::new(gs);
                 Ok((gs, Box::new(session)))
