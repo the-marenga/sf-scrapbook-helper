@@ -1,4 +1,6 @@
+use chrono::Local;
 use iced::{
+    alignment::Horizontal,
     theme,
     widget::{
         self, button, checkbox, column, container, horizontal_space, pick_list,
@@ -11,7 +13,8 @@ use iced_aw::number_input;
 use self::{scrapbook::view_scrapbook, underworld::view_underworld};
 use crate::{
     config::AvailableTheme, get_server_code, message::Message,
-    player::AccountStatus, top_bar, AccountIdent, AccountPage, Helper, View,
+    player::AccountStatus, server::CrawlingStatus, top_bar, AccountIdent,
+    AccountPage, Helper, View,
 };
 
 mod scrapbook;
@@ -200,38 +203,53 @@ impl Helper {
 
         let mut accounts = column!()
             .padding(20)
-            .spacing(10)
+            .spacing(5)
             .width(Length::Fill)
             .align_items(Alignment::Center);
 
-        for server in self.servers.0.values() {
-            for acc in server.accounts.values() {
+        let mut servers: Vec<_> = self.servers.0.values().collect();
+        servers.sort_by_key(|a| &a.ident.ident);
+        for server in servers {
+            let server_status: Box<str> = match &server.crawling {
+                CrawlingStatus::Waiting => "Waiting".into(),
+                CrawlingStatus::Restoring => "Restoring".into(),
+                CrawlingStatus::CrawlingFailed(_) => "Error".into(),
+                CrawlingStatus::Crawling {
+                    que, player_info, ..
+                } => {
+                    let lock = que.lock().unwrap();
+                    let remaining = lock.count_remaining();
+                    let crawled = player_info.len();
+                    let total = remaining + crawled;
+                    drop(lock);
+                    if crawled == total {
+                        "Finished".into()
+                    } else {
+                        format!("{crawled}/{total}").into()
+                    }
+                }
+            };
+
+            let mut accs: Vec<_> = server.accounts.values().collect();
+            accs.sort_by_key(|a| &a.name);
+            for acc in accs {
                 let status = acc.status.lock().unwrap();
                 let mut info_row = row!().spacing(10.0);
+                let status_width = 80.0;
+                let status_text = |t: &str| text(t).width(status_width);
 
-                info_row = info_row
-                    .push(text(get_server_code(&server.ident.url)).width(50.0));
-                info_row = info_row.push(
-                    text(titlecase::titlecase(acc.name.as_str()).to_string())
-                        .width(200.0),
-                );
-                info_row = info_row.push(horizontal_space());
-
-                let status_width = 120.0;
-                let status_text = |t: &str| {
-                    text(t).width(status_width).horizontal_alignment(
-                        iced::alignment::Horizontal::Right,
-                    )
-                };
+                let mut next_free_fight = None;
 
                 match &*status {
                     AccountStatus::LoggingIn => {
                         info_row = info_row.push(status_text("Logging in"));
                     }
-                    AccountStatus::Idle(_, _) => {
+                    AccountStatus::Idle(_, gs) => {
+                        next_free_fight = Some(gs.arena.next_free_fight);
                         info_row = info_row.push(status_text("Active"));
                     }
-                    AccountStatus::Busy(_, reason) => {
+                    AccountStatus::Busy(gs, reason) => {
+                        next_free_fight = Some(gs.arena.next_free_fight);
                         info_row = info_row.push(status_text(reason));
                     }
                     AccountStatus::FatalError(_) => {
@@ -241,10 +259,73 @@ impl Helper {
                         info_row = info_row.push(status_text("Logging in"));
                     }
                 };
+                info_row = info_row
+                    .push(text(get_server_code(&server.ident.url)).width(50.0));
+                info_row = info_row.push(
+                    text(titlecase::titlecase(acc.name.as_str()).to_string())
+                        .width(200.0),
+                );
+                info_row = info_row.push(horizontal_space());
+
+                let ff_width = 40.0;
+                match next_free_fight {
+                    None => {
+                        let g = iced_aw::core::icons::bootstrap::icon_to_text(
+                            iced_aw::Bootstrap::Question,
+                        );
+                        info_row = info_row.push(
+                            g.width(ff_width)
+                                .size(18.0)
+                                .horizontal_alignment(Horizontal::Center),
+                        );
+                    }
+                    Some(Some(x)) if x >= Local::now() => {
+                        let secs = (x - Local::now()).num_seconds();
+                        info_row = info_row.push(
+                            text(format!("{secs}s"))
+                                .width(ff_width)
+                                .horizontal_alignment(Horizontal::Center),
+                        );
+                    }
+                    Some(_) => {
+                        let g = iced_aw::core::icons::bootstrap::icon_to_text(
+                            iced_aw::Bootstrap::Check,
+                        );
+                        info_row = info_row.push(
+                            g.width(ff_width)
+                                .size(18.0)
+                                .horizontal_alignment(Horizontal::Center),
+                        );
+                    }
+                };
+
+                let abs = if let Some(sbi) = &acc.scrapbook_info {
+                    if sbi.auto_battle {
+                        iced_aw::core::icons::bootstrap::icon_to_text(
+                            iced_aw::Bootstrap::Check,
+                        )
+                    } else {
+                        iced_aw::core::icons::bootstrap::icon_to_text(
+                            iced_aw::Bootstrap::X,
+                        )
+                    }
+                } else {
+                    iced_aw::core::icons::bootstrap::icon_to_text(
+                        iced_aw::Bootstrap::Question,
+                    )
+                };
+
+                info_row = info_row.push(
+                    abs.width(40.0)
+                        .size(18.0)
+                        .horizontal_alignment(Horizontal::Center),
+                );
+                info_row = info_row.push(text(&server_status).width(120.0));
 
                 let b = button(info_row)
                     .on_press(Message::ShowPlayer { ident: acc.ident })
-                    .width(Length::Fill);
+                    .width(Length::Fill)
+                    .style(theme::Button::Secondary);
                 accounts = accounts.push(b);
             }
         }
