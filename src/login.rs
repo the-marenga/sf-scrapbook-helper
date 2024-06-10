@@ -9,7 +9,7 @@ use iced::{
         self, button, checkbox, column, container, horizontal_space, row, text,
         text_input,
     },
-    Alignment, Border, Command, Element, Length, Renderer, Theme,
+    Alignment, Command, Element, Length, Renderer, Theme,
 };
 use sf_api::{
     error::SFError,

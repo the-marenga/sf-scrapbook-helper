@@ -626,12 +626,14 @@ impl Helper {
 
         let mut lock = que.lock().unwrap();
 
+        let result_limit = 50;
+
         if let Some(si) = &mut account.scrapbook_info {
             let per_player_counts = calc_per_player_count(
                 player_info, equipment, &si.scrapbook.items, si,
             );
             let mut best_players =
-                find_best(&per_player_counts, player_info, 20);
+                find_best(&per_player_counts, player_info, result_limit);
 
             best_players.sort_by(|a, b| {
                 if a.missing != b.missing {
@@ -662,7 +664,7 @@ impl Helper {
             ui.best.clear();
             'a: for (_, players) in naked.range(..=ui.max_level).rev() {
                 for player in players.iter() {
-                    if ui.best.len() >= 20 {
+                    if ui.best.len() >= result_limit {
                         break 'a;
                     }
                     let Some(info) = player_info.get(player) else {
