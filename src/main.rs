@@ -11,7 +11,7 @@ mod ui;
 use std::{
     collections::{hash_map::Entry, BTreeMap, HashMap, HashSet},
     sync::{atomic::AtomicU64, Arc, Mutex},
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 use chrono::{Local, NaiveDate, Utc};
@@ -437,7 +437,19 @@ impl Application for Helper {
         &mut self,
         message: Self::Message,
     ) -> iced::Command<Self::Message> {
-        self.handle_msg(message)
+        let start = Instant::now();
+        let msg = format!("{message:?}");
+        let res = self.handle_msg(message);
+
+        let time = start.elapsed();
+        if time > Duration::from_millis(1) {
+            println!(
+                "{} took: {time:?}",
+                msg.split('{').next().unwrap_or(&msg).trim(),
+            );
+        }
+
+        res
     }
 
     fn view(
@@ -690,7 +702,7 @@ impl Helper {
 
         account.last_updated = Local::now();
 
-        if has_old && *threads == 0 {
+        if (has_old || player_info.is_empty()) && *threads == 0 {
             return server.set_threads(1, &self.config.base_name);
         }
         Command::none()

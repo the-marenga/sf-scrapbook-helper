@@ -36,7 +36,7 @@ impl Crawler {
                             lock.invalid_accounts.push(entry);
                             continue;
                         }
-                        lock.in_flight_accounts.push(entry.clone());
+                        lock.in_flight_accounts.insert(entry.clone());
                         break CrawlAction::Character(entry, lock.que_id);
                     }
                     None => match lock.todo_pages.pop() {
@@ -307,7 +307,7 @@ pub struct WorkerQue {
     pub invalid_pages: Vec<usize>,
     pub invalid_accounts: Vec<String>,
     pub in_flight_pages: Vec<usize>,
-    pub in_flight_accounts: Vec<String>,
+    pub in_flight_accounts: HashSet<String>,
     pub order: CrawlingOrder,
     pub lvl_skipped_accounts: BTreeMap<u32, Vec<String>>,
     pub min_level: u32,

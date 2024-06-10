@@ -118,7 +118,7 @@ impl RestoreData {
                 invalid_accounts: self.invalid_accounts,
                 order: self.order,
                 in_flight_pages: vec![],
-                in_flight_accounts: vec![],
+                in_flight_accounts: Default::default(),
                 max_level: self.max_level,
                 min_level: self.min_level,
                 lvl_skipped_accounts: self.lvl_skipped_accounts,

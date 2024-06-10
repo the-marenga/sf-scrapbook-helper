@@ -254,8 +254,7 @@ impl Helper {
                         pb.set_length(total as u64);
                         pb.set_position(crawled as u64);
                     };
-
-                    lock.in_flight_accounts.retain(|a| a != &character.name);
+                    lock.in_flight_accounts.remove(&character.name);
                     lock.todo_pages.is_empty() && lock.todo_accounts.is_empty()
                 };
 
@@ -359,7 +358,7 @@ impl Helper {
                     CrawlAction::Character(a, b) => {
                         if *b == *que_id {
                             lock.invalid_accounts.push(a.to_string());
-                            lock.in_flight_accounts.retain(|x| x != a);
+                            lock.in_flight_accounts.remove(a);
                         }
                     }
                 }
@@ -591,7 +590,7 @@ impl Helper {
                         que.invalid_pages = status.invalid_pages;
                         que.order = status.order;
                         que.in_flight_pages = vec![];
-                        que.in_flight_accounts = vec![];
+                        que.in_flight_accounts = Default::default();
                         *que_id = status.que_id;
                         *player_info = status.player_info;
                         *equipment = status.equipment;
@@ -750,7 +749,9 @@ impl Helper {
                     return Command::none();
                 };
 
-                let Some(target) = si.best.first().cloned() else {
+                let Some(target) =
+                    si.best.iter().find(|a| !a.is_old()).cloned()
+                else {
                     let mut status = account.status.lock().unwrap();
                     status.put_session(session);
                     return refetch;

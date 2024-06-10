@@ -37,5 +37,8 @@ lto = true
 [profile.dev]
 opt-level = 1
 
+[profile.dev.package.iced]
+opt-level = 2
+
 [build-dependencies]
 winres = "0.1"
