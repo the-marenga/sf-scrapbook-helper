@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use chrono::Local;
 use iced::{
     alignment::Horizontal,
@@ -22,12 +24,12 @@ pub mod underworld;
 
 impl Helper {
     pub fn view_current_page(&self) -> Element<Message> {
-        let view: Element<Message> = match self.current_view {
-            View::Account { ident, page } => self.view_account(ident, page),
+        let view: Element<Message> = match &self.current_view {
+            View::Account { ident, page } => self.view_account(*ident, *page),
             View::Login => self
                 .login_state
                 .view(&self.config.accounts, self.has_accounts()),
-            View::Overview => self.view_overview(),
+            View::Overview { selected } => self.view_overview(selected),
             View::Settings => self.view_settings(),
         };
         let main_part = container(view).width(Length::Fill).center_x();
@@ -195,7 +197,10 @@ impl Helper {
             .into()
     }
 
-    fn view_overview(&self) -> Element<Message> {
+    fn view_overview(
+        &self,
+        selected: &HashSet<AccountIdent>,
+    ) -> Element<Message> {
         let top_bar = top_bar(
             text("Characters").size(20).into(),
             Some(Message::ViewLogin),
@@ -214,18 +219,14 @@ impl Helper {
                 CrawlingStatus::Waiting => "Waiting".into(),
                 CrawlingStatus::Restoring => "Restoring".into(),
                 CrawlingStatus::CrawlingFailed(_) => "Error".into(),
-                CrawlingStatus::Crawling {
-                    que, player_info, ..
-                } => {
+                CrawlingStatus::Crawling { que, .. } => {
                     let lock = que.lock().unwrap();
                     let remaining = lock.count_remaining();
-                    let crawled = player_info.len();
-                    let total = remaining + crawled;
                     drop(lock);
-                    if crawled == total {
+                    if remaining == 0 {
                         "Finished".into()
                     } else {
-                        format!("{crawled}/{total}").into()
+                        format!("{remaining}").into()
                     }
                 }
             };
@@ -320,13 +321,21 @@ impl Helper {
                         .size(18.0)
                         .horizontal_alignment(Horizontal::Center),
                 );
-                info_row = info_row.push(text(&server_status).width(120.0));
+                info_row = info_row.push(text(&server_status).width(80.0));
 
                 let b = button(info_row)
                     .on_press(Message::ShowPlayer { ident: acc.ident })
                     .width(Length::Fill)
                     .style(theme::Button::Secondary);
-                accounts = accounts.push(b);
+                let ident = acc.ident;
+                let cb = checkbox("", selected.contains(&acc.ident))
+                    .on_toggle(move |nv| Message::SetOverviewSelected {
+                        ident: vec![ident],
+                        val: nv,
+                    })
+                    .size(13.0);
+                let row = row!(cb, b).align_items(Alignment::Center);
+                accounts = accounts.push(row);
             }
         }
 

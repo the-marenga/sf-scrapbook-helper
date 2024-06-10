@@ -79,7 +79,7 @@ impl AccountInfo {
     pub fn new(
         name: &str,
         auth: PlayerAuth,
-        account_ident: AccountIdent,
+        ident: AccountIdent,
         _config: &Config,
     ) -> AccountInfo {
         AccountInfo {
@@ -89,7 +89,7 @@ impl AccountInfo {
             underworld_info: None,
             last_updated: Local::now(),
             status: Arc::new(Mutex::new(AccountStatus::LoggingIn)),
-            ident: account_ident,
+            ident,
         }
     }
 }

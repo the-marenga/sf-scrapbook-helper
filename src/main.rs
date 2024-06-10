@@ -209,13 +209,15 @@ impl ClassImages {
     }
 }
 
-#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 enum View {
     Account {
         ident: AccountIdent,
         page: AccountPage,
     },
-    Overview,
+    Overview {
+        selected: HashSet<AccountIdent>,
+    },
     Login,
     Settings,
 }
@@ -415,7 +417,9 @@ impl Application for Helper {
         }
 
         if loading > 0 {
-            helper.current_view = View::Overview;
+            helper.current_view = View::Overview {
+                selected: Default::default(),
+            };
         }
 
         (helper, Command::batch(commands))

@@ -48,6 +48,10 @@ pub enum Message {
     PlayerPolled {
         ident: AccountIdent,
     },
+    SetOverviewSelected {
+        ident: Vec<AccountIdent>,
+        val: bool,
+    },
     SSOLoginFailure {
         name: String,
         error: String,
@@ -958,7 +962,9 @@ impl Helper {
                 que.todo_pages.append(&mut ok_pages);
             }
             Message::ViewOverview => {
-                self.current_view = View::Overview;
+                self.current_view = View::Overview {
+                    selected: Default::default(),
+                };
             }
             Message::ChangeTheme(theme) => {
                 self.config.theme = theme;
@@ -1591,6 +1597,20 @@ impl Helper {
                 };
                 let account = self.login_state.import_que.remove(pos);
                 return self.login(account, false, PlayerAuth::SSO, true);
+            }
+            Message::SetOverviewSelected { ident, val } => {
+                let View::Overview { selected } = &mut self.current_view else {
+                    return Command::none();
+                };
+                if val {
+                    for v in ident {
+                        selected.insert(v);
+                    }
+                } else {
+                    for v in ident {
+                        selected.remove(&v);
+                    }
+                }
             }
         }
         Command::none()
