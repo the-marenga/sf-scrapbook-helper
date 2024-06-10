@@ -3402,7 +3402,7 @@ dependencies = [
 
 [[package]]
 name = "sf-scrapbook-helper"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "ahash",
  "async-compression",

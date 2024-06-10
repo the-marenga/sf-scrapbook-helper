@@ -4,7 +4,6 @@ use std::{
 };
 
 use iced::{
-    futures::TryFutureExt,
     theme,
     widget::{
         self, button, checkbox, column, container, horizontal_space, row, text,

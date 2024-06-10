@@ -97,18 +97,18 @@ impl AccountInfo {
 pub enum AccountStatus {
     LoggingIn,
     Idle(Box<Session>, Box<GameState>),
-    Busy(Box<GameState>),
+    Busy(Box<GameState>, Box<str>),
     FatalError(String),
     LoggingInAgain,
 }
 
 impl AccountStatus {
-    pub fn take_session(&mut self) -> Option<Box<Session>> {
+    pub fn take_session<T: Into<Box<str>>>(&mut self, reason: T) -> Option<Box<Session>> {
         let mut res = None;
         *self = match std::mem::replace(self, AccountStatus::LoggingIn) {
             AccountStatus::Idle(a, b) => {
                 res = Some(a);
-                AccountStatus::Busy(b)
+                AccountStatus::Busy(b, reason.into())
             }
             x => x,
         };
@@ -117,7 +117,7 @@ impl AccountStatus {
 
     pub fn put_session(&mut self, session: Box<Session>) {
         *self = match std::mem::replace(self, AccountStatus::LoggingIn) {
-            AccountStatus::Busy(a) => AccountStatus::Idle(session, a),
+            AccountStatus::Busy(a, _) => AccountStatus::Idle(session, a),
             x => x,
         };
     }
@@ -161,7 +161,7 @@ impl AutoPoll {
         sleep(Duration::from_millis(fastrand::u64(5000..=10000))).await;
         let mut session = {
             let mut lock = self.player_status.lock().unwrap();
-            let res = lock.take_session();
+            let res = lock.take_session("Auto Poll");
             match res {
                 Some(res) => res,
                 None => return Message::PlayerNotPolled { ident: self.ident },
@@ -182,7 +182,7 @@ impl AutoPoll {
         };
         let mut lock = self.player_status.lock().unwrap();
         let gs = match &mut *lock {
-            AccountStatus::Busy(gs) => gs,
+            AccountStatus::Busy(gs, _) => gs,
             _ => {
                 lock.put_session(session);
                 return Message::PlayerNotPolled { ident: self.ident };

@@ -620,7 +620,9 @@ impl Helper {
                 if let Some(old) = server.accounts.remove(&ident.account) {
                     if matches!(old.auth, PlayerAuth::SSO) {
                         if let Ok(mut sl) = old.status.lock() {
-                            if let Some(session) = sl.take_session() {
+                            if let Some(session) =
+                                sl.take_session("Removing Account")
+                            {
                                 self.login_state.import_que.push(*session);
                             }
                         }
@@ -662,7 +664,7 @@ impl Helper {
                         | AccountStatus::LoggingIn
                         | AccountStatus::FatalError(_) => None,
                         AccountStatus::Idle(_, gs)
-                        | AccountStatus::Busy(gs) => {
+                        | AccountStatus::Busy(gs,_) => {
                             Some(gs.hall_of_fames.players_total)
                         }
                     }
@@ -735,7 +737,7 @@ impl Helper {
                     return refetch;
                 }
 
-                let Some(mut session) = status.take_session() else {
+                let Some(mut session) = status.take_session("Fighting") else {
                     return refetch;
                 };
                 drop(status);
@@ -838,7 +840,7 @@ impl Helper {
                 let v = account.status.clone();
                 let mut lock = v.lock().unwrap();
 
-                let AccountStatus::Busy(s) = &mut *lock else {
+                let AccountStatus::Busy(s,_) = &mut *lock else {
                     return Command::none();
                 };
 
@@ -1128,7 +1130,7 @@ impl Helper {
                     return Command::none();
                 }
 
-                let Some(mut session) = status.take_session() else {
+                let Some(mut session) = status.take_session("Fighting") else {
                     return Command::none();
                 };
                 drop(status);
@@ -1294,7 +1296,7 @@ impl Helper {
                 };
 
                 let mut lock = player.status.lock().unwrap();
-                *lock = AccountStatus::Busy(gs);
+                *lock = AccountStatus::Busy(gs, "Waiting".into());
                 drop(lock);
                 // For some reason the game does not like sending requests
                 // immediately
@@ -1334,7 +1336,7 @@ impl Helper {
                 };
 
                 let mut status = account.status.lock().unwrap();
-                let Some(mut session) = status.take_session() else {
+                let Some(mut session) = status.take_session("Luring player") else {
                     return Command::none();
                 };
                 drop(status);
@@ -1384,7 +1386,7 @@ impl Helper {
                 let v = account.status.clone();
                 let mut lock = v.lock().unwrap();
 
-                let AccountStatus::Busy(s) = &mut *lock else {
+                let AccountStatus::Busy(s, _) = &mut *lock else {
                     return Command::none();
                 };
 
@@ -1428,7 +1430,7 @@ impl Helper {
                 };
                 let mut lock = account.status.lock().unwrap();
                 let gs = match &mut *lock {
-                    AccountStatus::Busy(gs) | AccountStatus::Idle(_, gs) => gs,
+                    AccountStatus::Busy(gs, _) | AccountStatus::Idle(_, gs) => gs,
                     _ => {
                         return Command::none();
                     }

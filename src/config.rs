@@ -1,4 +1,3 @@
-use ahash::HashMap;
 use iced::Theme;
 use serde::{Deserialize, Serialize};
 use sf_api::session::PWHash;

@@ -29,7 +29,7 @@ pub fn view_underworld<'a>(
     let _gs = match &*lock {
         AccountStatus::LoggingIn => return text("Loggin in").size(20).into(),
         AccountStatus::Idle(_, gs) => gs,
-        AccountStatus::Busy(gs) => gs,
+        AccountStatus::Busy(gs, _) => gs,
         AccountStatus::FatalError(err) => {
             return text(format!("Error: {err}")).size(20).into()
         }

@@ -10,8 +10,8 @@ use iced_aw::number_input;
 
 use self::{scrapbook::view_scrapbook, underworld::view_underworld};
 use crate::{
-    config::AvailableTheme, get_server_code, message::Message, top_bar,
-    AccountIdent, AccountPage, Helper, View,
+    config::AvailableTheme, get_server_code, message::Message,
+    player::AccountStatus, top_bar, AccountIdent, AccountPage, Helper, View,
 };
 
 mod scrapbook;
@@ -204,13 +204,44 @@ impl Helper {
 
         for server in self.servers.0.values() {
             for acc in server.accounts.values() {
-                let b = button(row!(
-                    text(titlecase::titlecase(acc.name.as_str()).to_string()),
-                    horizontal_space(),
-                    text(get_server_code(&server.ident.url))
-                ))
-                .on_press(Message::ShowPlayer { ident: acc.ident })
-                .width(Length::Fill);
+                let status = acc.status.lock().unwrap();
+                let mut info_row = row!().spacing(10.0);
+
+                info_row = info_row
+                    .push(text(get_server_code(&server.ident.url)).width(50.0));
+                info_row = info_row.push(
+                    text(titlecase::titlecase(acc.name.as_str()).to_string())
+                        .width(200.0),
+                );
+                info_row = info_row.push(horizontal_space());
+
+                let status_width = 70.0;
+                match &*status {
+                    AccountStatus::LoggingIn => {
+                        info_row = info_row
+                            .push(text("Logging in").width(status_width));
+                    }
+                    AccountStatus::Idle(_, _) => {
+                        info_row =
+                            info_row.push(text("Active").width(status_width));
+                    }
+                    AccountStatus::Busy(_, reason) => {
+                        info_row = info_row
+                            .push(text(reason.to_string()).width(status_width));
+                    }
+                    AccountStatus::FatalError(_) => {
+                        info_row =
+                            info_row.push(text("Error!").width(status_width));
+                    }
+                    AccountStatus::LoggingInAgain => {
+                        info_row = info_row
+                            .push(text("Logging in again").width(status_width));
+                    }
+                };
+
+                let b = button(info_row)
+                    .on_press(Message::ShowPlayer { ident: acc.ident })
+                    .width(Length::Fill);
                 accounts = accounts.push(b);
             }
         }

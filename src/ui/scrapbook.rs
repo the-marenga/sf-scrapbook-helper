@@ -30,7 +30,7 @@ pub fn view_scrapbook<'a>(
     let gs = match &*lock {
         AccountStatus::LoggingIn => return text("Logging in").size(20).into(),
         AccountStatus::Idle(_, gs) => gs,
-        AccountStatus::Busy(gs) => gs,
+        AccountStatus::Busy(gs, _) => gs,
         AccountStatus::FatalError(err) => {
             return text(format!("Error: {err}")).size(20).into()
         }
