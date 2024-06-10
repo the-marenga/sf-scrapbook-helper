@@ -664,7 +664,7 @@ impl Helper {
                         | AccountStatus::LoggingIn
                         | AccountStatus::FatalError(_) => None,
                         AccountStatus::Idle(_, gs)
-                        | AccountStatus::Busy(gs,_) => {
+                        | AccountStatus::Busy(gs, _) => {
                             Some(gs.hall_of_fames.players_total)
                         }
                     }
@@ -840,7 +840,7 @@ impl Helper {
                 let v = account.status.clone();
                 let mut lock = v.lock().unwrap();
 
-                let AccountStatus::Busy(s,_) = &mut *lock else {
+                let AccountStatus::Busy(s, _) = &mut *lock else {
                     return Command::none();
                 };
 
@@ -1336,7 +1336,8 @@ impl Helper {
                 };
 
                 let mut status = account.status.lock().unwrap();
-                let Some(mut session) = status.take_session("Luring player") else {
+                let Some(mut session) = status.take_session("Luring player")
+                else {
                     return Command::none();
                 };
                 drop(status);
@@ -1430,7 +1431,9 @@ impl Helper {
                 };
                 let mut lock = account.status.lock().unwrap();
                 let gs = match &mut *lock {
-                    AccountStatus::Busy(gs, _) | AccountStatus::Idle(_, gs) => gs,
+                    AccountStatus::Busy(gs, _) | AccountStatus::Idle(_, gs) => {
+                        gs
+                    }
                     _ => {
                         return Command::none();
                     }

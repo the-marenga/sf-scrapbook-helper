@@ -317,13 +317,11 @@ pub fn view_scrapbook<'a>(
         ));
     }
     let target_list = scrollable(target_list);
-    let right_col = column!(name_bar, target_list)
-        .width(Length::Fill)
-        .spacing(10);
+    let right_col = column!(name_bar, target_list).spacing(10);
 
     row!(
-        left_col.width(Length::FillPortion(1)),
-        right_col.width(Length::FillPortion(3))
+        left_col.width(Length::Fixed(200.0)),
+        right_col.width(Length::Fill)
     )
     .padding(15)
     .height(Length::Fill)

@@ -193,8 +193,10 @@ impl Helper {
     }
 
     fn view_overview(&self) -> Element<Message> {
-        let top_bar =
-            top_bar(text("Overview").size(20).into(), Some(Message::ViewLogin));
+        let top_bar = top_bar(
+            text("Characters").size(20).into(),
+            Some(Message::ViewLogin),
+        );
 
         let mut accounts = column!()
             .padding(20)
@@ -215,27 +217,28 @@ impl Helper {
                 );
                 info_row = info_row.push(horizontal_space());
 
-                let status_width = 70.0;
+                let status_width = 120.0;
+                let status_text = |t: &str| {
+                    text(t).width(status_width).horizontal_alignment(
+                        iced::alignment::Horizontal::Right,
+                    )
+                };
+
                 match &*status {
                     AccountStatus::LoggingIn => {
-                        info_row = info_row
-                            .push(text("Logging in").width(status_width));
+                        info_row = info_row.push(status_text("Logging in"));
                     }
                     AccountStatus::Idle(_, _) => {
-                        info_row =
-                            info_row.push(text("Active").width(status_width));
+                        info_row = info_row.push(status_text("Active"));
                     }
                     AccountStatus::Busy(_, reason) => {
-                        info_row = info_row
-                            .push(text(reason.to_string()).width(status_width));
+                        info_row = info_row.push(status_text(reason));
                     }
                     AccountStatus::FatalError(_) => {
-                        info_row =
-                            info_row.push(text("Error!").width(status_width));
+                        info_row = info_row.push(status_text("Error!"));
                     }
                     AccountStatus::LoggingInAgain => {
-                        info_row = info_row
-                            .push(text("Logging in again").width(status_width));
+                        info_row = info_row.push(status_text("Logging in"));
                     }
                 };
 

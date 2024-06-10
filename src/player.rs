@@ -103,7 +103,10 @@ pub enum AccountStatus {
 }
 
 impl AccountStatus {
-    pub fn take_session<T: Into<Box<str>>>(&mut self, reason: T) -> Option<Box<Session>> {
+    pub fn take_session<T: Into<Box<str>>>(
+        &mut self,
+        reason: T,
+    ) -> Option<Box<Session>> {
         let mut res = None;
         *self = match std::mem::replace(self, AccountStatus::LoggingIn) {
             AccountStatus::Idle(a, b) => {
