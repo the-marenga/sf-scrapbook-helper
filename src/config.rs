@@ -237,6 +237,8 @@ pub struct CharacterConfig {
     pub login: bool,
     #[serde(default)]
     pub auto_battle: bool,
+    #[serde(default)]
+    pub auto_lure: bool,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Hash, PartialEq, Eq)]

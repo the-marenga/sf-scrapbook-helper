@@ -32,10 +32,14 @@ pub struct UnderworldInfo {
     pub best: Vec<CharacterInfo>,
     pub max_level: u16,
     pub attack_log: Vec<(DateTime<Local>, String, bool)>,
+    pub auto_lure: bool,
 }
 
 impl UnderworldInfo {
-    pub fn new(gs: &GameState) -> Option<Self> {
+    pub fn new(
+        gs: &GameState,
+        config: Option<&CharacterConfig>,
+    ) -> Option<Self> {
         let underworld = gs.underworld.as_ref()?.clone();
         let avg_lvl = underworld
             .units
@@ -49,6 +53,7 @@ impl UnderworldInfo {
             best: Default::default(),
             max_level: avg_lvl as u16 + 20,
             attack_log: Vec::new(),
+            auto_lure: config.map(|a| a.auto_lure).unwrap_or(false),
         })
     }
 }
@@ -153,6 +158,37 @@ impl AutoAttackChecker {
             .await;
 
         Message::AutoFightPossible { ident: self.ident }
+    }
+}
+
+pub struct AutoLureChecker {
+    pub player_status: Arc<Mutex<AccountStatus>>,
+    pub ident: AccountIdent,
+}
+
+impl AutoLureChecker {
+    pub async fn check(&self) -> Message {
+        let lured = {
+            match &*self.player_status.lock().unwrap() {
+                AccountStatus::Idle(_, session) => {
+                    session.underworld.as_ref().map(|a| a.lured_today)
+                }
+                _ => None,
+            }
+        };
+        let Some(0..=4) = lured else {
+            // Either no underworld, or already lured the max
+            tokio::time::sleep(Duration::from_millis(fastrand::u64(
+                5000..=10_000,
+            )))
+            .await;
+            return Message::AutoLureIdle;
+        };
+
+        tokio::time::sleep(Duration::from_millis(fastrand::u64(3000..=5000)))
+            .await;
+
+        Message::AutoLurePossible { ident: self.ident }
     }
 }
 

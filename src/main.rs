@@ -37,7 +37,8 @@ use log4rs::{
 use login::{LoginState, LoginType, PlayerAuth, SSOStatus, SSOValidator};
 use nohash_hasher::{IntMap, IntSet};
 use player::{
-    AccountInfo, AccountStatus, AutoAttackChecker, AutoPoll, ScrapbookInfo,
+    AccountInfo, AccountStatus, AutoAttackChecker, AutoLureChecker, AutoPoll,
+    ScrapbookInfo,
 };
 use serde::{Deserialize, Serialize};
 use server::{CrawlingStatus, ServerIdent, ServerInfo, Servers};
@@ -459,19 +460,33 @@ impl Application for Helper {
     }
 
     fn subscription(&self) -> Subscription<Self::Message> {
+        // Disambiguates running subscriptions
+        #[derive(Debug, Hash, PartialEq, Eq)]
+        enum SubIdent {
+            RefreshUI,
+            AutoPoll(AccountIdent),
+            AutoBattle(AccountIdent),
+            AutoLure(AccountIdent),
+            SSOCheck(SSOProvider),
+            Crawling(usize, ServerID),
+        }
+
         let mut subs = vec![];
-        let subscription =
-            subscription::unfold(-99999, (), move |a: ()| async move {
+        let subscription = subscription::unfold(
+            SubIdent::RefreshUI,
+            (),
+            move |a: ()| async move {
                 sleep(Duration::from_millis(200)).await;
                 (Message::UIActive, a)
-            });
+            },
+        );
         subs.push(subscription);
 
         for (server_id, server) in &self.servers.0 {
             for acc in server.accounts.values() {
                 if self.config.auto_poll {
                     let subscription = subscription::unfold(
-                        (acc.ident, 777),
+                        SubIdent::AutoPoll(acc.ident),
                         AutoPoll {
                             player_status: acc.status.clone(),
                             ident: acc.ident,
@@ -481,22 +496,37 @@ impl Application for Helper {
                     subs.push(subscription);
                 }
 
-                let Some(si) = &acc.scrapbook_info else {
-                    continue;
+                if let Some(si) = &acc.scrapbook_info {
+                    if si.auto_battle {
+                        let subscription = subscription::unfold(
+                            SubIdent::AutoBattle(acc.ident),
+                            AutoAttackChecker {
+                                player_status: acc.status.clone(),
+                                ident: acc.ident,
+                            },
+                            move |a: AutoAttackChecker| async move {
+                                (a.check().await, a)
+                            },
+                        );
+                        subs.push(subscription);
+                    }
                 };
 
-                if !si.auto_battle {
-                    continue;
+                if let Some(ui) = &acc.underworld_info {
+                    if ui.auto_lure {
+                        let subscription = subscription::unfold(
+                            SubIdent::AutoLure(acc.ident),
+                            AutoLureChecker {
+                                player_status: acc.status.clone(),
+                                ident: acc.ident,
+                            },
+                            move |a: AutoLureChecker| async move {
+                                (a.check().await, a)
+                            },
+                        );
+                        subs.push(subscription);
+                    }
                 }
-                let subscription = subscription::unfold(
-                    (acc.ident, 69),
-                    AutoAttackChecker {
-                        player_status: acc.status.clone(),
-                        ident: acc.ident,
-                    },
-                    move |a: AutoAttackChecker| async move { (a.check().await, a) },
-                );
-                subs.push(subscription);
             }
 
             if let CrawlingStatus::Crawling {
@@ -511,7 +541,7 @@ impl Application for Helper {
                 };
                 for thread in 0..*threads {
                     let subscription = subscription::unfold(
-                        (thread, server.ident.id),
+                        SubIdent::Crawling(thread, server.ident.id),
                         Crawler {
                             que: que.clone(),
                             state: session.clone(),
@@ -530,7 +560,7 @@ impl Application for Helper {
         ] {
             let arc = arc.clone();
             let subscription = subscription::unfold(
-                prov,
+                SubIdent::SSOCheck(prov),
                 SSOValidator {
                     status: arc,
                     provider: prov,

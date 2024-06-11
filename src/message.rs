@@ -185,7 +185,6 @@ pub enum Message {
         action: CrawlAction,
     },
     ViewLogin,
-
     LoginNameInputChange(String),
     LoginPWInputChange(String),
     LoginServerChange(String),
@@ -217,6 +216,10 @@ pub enum Message {
         nv: bool,
     },
     UIActive,
+    AutoLureIdle,
+    AutoLurePossible {
+        ident: AccountIdent,
+    },
 }
 
 impl Helper {
@@ -507,7 +510,7 @@ impl Helper {
                     self.config.get_char_conf(&player.name, ident.server_id);
 
                 player.scrapbook_info = ScrapbookInfo::new(&gs, char_conf);
-                player.underworld_info = UnderworldInfo::new(&gs);
+                player.underworld_info = UnderworldInfo::new(&gs, char_conf);
 
                 *player.status.lock().unwrap() =
                     AccountStatus::Idle(session, gs);
@@ -635,9 +638,7 @@ impl Helper {
                 if let Some(old) = server.accounts.remove(&ident.account) {
                     if matches!(old.auth, PlayerAuth::SSO) {
                         if let Ok(mut sl) = old.status.lock() {
-                            if let Some(session) =
-                                sl.take_session("Removing Account")
-                            {
+                            if let Some(session) = sl.take_session("Removing") {
                                 self.login_state.import_que.push(*session);
                             }
                         }
@@ -758,14 +759,14 @@ impl Helper {
                 drop(status);
 
                 let Some(si) = &account.scrapbook_info else {
-                    return Command::none();
+                    account.status.lock().unwrap().put_session(session);
+                    return refetch;
                 };
 
                 let Some(target) =
                     si.best.iter().find(|a| !a.is_old()).cloned()
                 else {
-                    let mut status = account.status.lock().unwrap();
-                    status.put_session(session);
+                    account.status.lock().unwrap().put_session(session);
                     return refetch;
                 };
 
@@ -1356,8 +1357,7 @@ impl Helper {
                 };
 
                 let mut status = account.status.lock().unwrap();
-                let Some(mut session) = status.take_session("Luring player")
-                else {
+                let Some(mut session) = status.take_session("Luring") else {
                     return Command::none();
                 };
                 drop(status);
@@ -1645,6 +1645,78 @@ impl Helper {
             Message::SetBlacklistThr(nv) => {
                 self.config.blacklist_threshold = nv.max(1);
                 _ = self.config.write();
+            }
+            Message::AutoLureIdle => {}
+            Message::AutoLurePossible { ident } => {
+                let refetch = self.update_best(ident, true);
+
+                let Some(server) = self.servers.0.get_mut(&ident.server_id)
+                else {
+                    return Command::none();
+                };
+                let Some(account) = server.accounts.get_mut(&ident.account)
+                else {
+                    return Command::none();
+                };
+
+                let CrawlingStatus::Crawling { .. } = &server.crawling else {
+                    return Command::none();
+                };
+
+                let mut status = account.status.lock().unwrap();
+                let AccountStatus::Idle(_, gs) = &*status else {
+                    return refetch;
+                };
+
+                let Some(0..=4) = gs.underworld.as_ref().map(|a| a.lured_today)
+                else {
+                    return refetch;
+                };
+
+                let Some(mut session) = status.take_session("Luring") else {
+                    return refetch;
+                };
+                drop(status);
+
+                let Some(ui) = &account.underworld_info else {
+                    account.status.lock().unwrap().put_session(session);
+                    return refetch;
+                };
+
+                let Some(target) =
+                    ui.best.iter().find(|a| !a.is_old()).cloned()
+                else {
+                    account.status.lock().unwrap().put_session(session);
+                    return refetch;
+                };
+                info!("Auto Underworld attack {ident}");
+                let fight = Command::perform(
+                    async move {
+                        let cmd = sf_api::command::Command::UnderworldAttack {
+                            player_id: target.uid,
+                        };
+                        let resp = session.send_command(&cmd).await;
+                        (resp, session)
+                    },
+                    move |r| match r.0 {
+                        Ok(resp) => Message::PlayerLureResult {
+                            ident,
+                            session: r.1,
+                            against: LureTarget {
+                                uid: target.uid,
+                                name: target.name,
+                            },
+                            resp: Box::new(resp),
+                        },
+                        Err(_) => Message::PlayerCommandFailed {
+                            ident,
+                            session: r.1,
+                            attempt: 0,
+                        },
+                    },
+                );
+
+                return Command::batch([refetch, fight]);
             }
         }
         Command::none()
