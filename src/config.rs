@@ -1,4 +1,5 @@
 use iced::Theme;
+use num_format::{CustomFormat, SystemLocale};
 use serde::{Deserialize, Serialize};
 use sf_api::session::PWHash;
 
@@ -20,10 +21,22 @@ pub struct Config {
     pub show_class_icons: bool,
     #[serde(default = "default_blacklist_threshhold")]
     pub blacklist_threshold: usize,
+
+    #[serde(default = "default_locale", skip)]
+    pub num_format: CustomFormat,
 }
 
 fn default_threads() -> usize {
     10
+}
+
+fn default_locale() -> CustomFormat {
+    let mut cfb = CustomFormat::builder();
+    if let Ok(system) = SystemLocale::default() {
+        cfb = cfb.separator(system.separator());
+        cfb = cfb.grouping(system.grouping());
+    }
+    cfb.build().unwrap_or_default()
 }
 
 fn default_blacklist_threshhold() -> usize {
@@ -57,6 +70,7 @@ impl Default for Config {
             show_crawling_restrict: false,
             show_class_icons: true,
             blacklist_threshold: 1,
+            num_format: default_locale(),
         }
     }
 }

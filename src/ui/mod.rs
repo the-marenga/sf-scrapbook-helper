@@ -11,6 +11,7 @@ use iced::{
     Alignment, Element, Length,
 };
 use iced_aw::number_input;
+use num_format::ToFormattedString;
 use options::view_options;
 
 use self::{scrapbook::view_scrapbook, underworld::view_underworld};
@@ -287,7 +288,11 @@ impl Helper {
                 info_row = info_row.push(horizontal_space());
 
                 let scrapbook_count: String = match &acc.scrapbook_info {
-                    Some(si) => si.scrapbook.items.len().to_string(),
+                    Some(si) => si
+                        .scrapbook
+                        .items
+                        .len()
+                        .to_formatted_string(&self.config.num_format),
                     None => "".into(),
                 };
 
@@ -310,9 +315,11 @@ impl Helper {
                         );
                     }
                     Some(Some(x)) if x >= Local::now() => {
-                        let secs = (x - Local::now()).num_seconds();
+                        let secs = (x - Local::now()).num_seconds() % 60;
+                        let mins = (x - Local::now()).num_seconds() / 60;
+                        let ttt = format!("{mins}:{secs:02}");
                         info_row = info_row.push(
-                            text(format!("{secs}s"))
+                            text(ttt)
                                 .width(ff_width)
                                 .horizontal_alignment(Horizontal::Center),
                         );

@@ -11,7 +11,7 @@ mod ui;
 use std::{
     collections::{hash_map::Entry, BTreeMap, HashMap, HashSet},
     sync::{atomic::AtomicU64, Arc, Mutex},
-    time::{Duration, Instant},
+    time::Duration,
 };
 
 use chrono::{Local, NaiveDate, Utc};
@@ -438,18 +438,17 @@ impl Application for Helper {
         &mut self,
         message: Self::Message,
     ) -> iced::Command<Self::Message> {
-        let start = Instant::now();
-        let msg = format!("{message:?}");
+        // let start = Instant::now();
+        // let msg = format!("{message:?}");
         let res = self.handle_msg(message);
-
-        let time = start.elapsed();
-        if time > Duration::from_millis(1) {
-            println!(
-                "{} took: {time:?}",
-                msg.split('{').next().unwrap_or(&msg).trim(),
-            );
-        }
-
+        _ = &res;
+        // let time = start.elapsed();
+        // if time > Duration::from_millis(1) {
+        //     println!(
+        //         "{} took: {time:?}",
+        //         msg.split('{').next().unwrap_or(&msg).trim(),
+        //     );
+        // }
         res
     }
 
@@ -461,6 +460,12 @@ impl Application for Helper {
 
     fn subscription(&self) -> Subscription<Self::Message> {
         let mut subs = vec![];
+        let subscription =
+            subscription::unfold(-99999, (), move |a: ()| async move {
+                sleep(Duration::from_millis(200)).await;
+                (Message::UIActive, a)
+            });
+        subs.push(subscription);
 
         for (server_id, server) in &self.servers.0 {
             for acc in server.accounts.values() {
@@ -647,7 +652,8 @@ impl Helper {
 
         if let Some(si) = &mut account.scrapbook_info {
             let per_player_counts = calc_per_player_count(
-                player_info, equipment, &si.scrapbook.items, si, self.config.blacklist_threshold
+                player_info, equipment, &si.scrapbook.items, si,
+                self.config.blacklist_threshold,
             );
             let mut best_players =
                 find_best(&per_player_counts, player_info, result_limit);
@@ -770,6 +776,12 @@ macro_rules! impl_unique_id {
 #[derive(Debug, Hash, PartialEq, Eq, Copy, Clone)]
 pub struct ServerID(u64);
 
+impl std::fmt::Display for ServerID {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_fmt(format_args!("server-{}", self.0))
+    }
+}
+
 #[derive(Debug, Hash, PartialEq, Eq, Copy, Clone)]
 pub struct QueID(u64);
 impl_unique_id!(QueID);
@@ -778,10 +790,25 @@ impl_unique_id!(QueID);
 pub struct AccountID(u64);
 impl_unique_id!(AccountID);
 
+impl std::fmt::Display for AccountID {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_fmt(format_args!("character-{}", self.0))
+    }
+}
+
 #[derive(Debug, Hash, PartialEq, Eq, Copy, Clone)]
 pub struct AccountIdent {
     server_id: ServerID,
     account: AccountID,
+}
+
+impl std::fmt::Display for AccountIdent {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_fmt(format_args!(
+            "character-{}@{}",
+            self.account.0, self.server_id.0
+        ))
+    }
 }
 
 impl ServerInfo {

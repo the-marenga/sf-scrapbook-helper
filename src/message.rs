@@ -216,16 +216,18 @@ pub enum Message {
         server: ServerID,
         nv: bool,
     },
+    UIActive,
 }
 
 impl Helper {
     pub fn handle_msg(&mut self, message: Message) -> Command<Message> {
         match message {
+            Message::UIActive => {}
             Message::PageCrawled => {
                 // Gets handled in crawling
             }
             Message::CrawlerDied { server, error } => {
-                log::error!("Crawler died on {server:?} - {error}");
+                log::error!("Crawler died on {server} - {error}");
 
                 let Some(server) = self.servers.get_mut(&server) else {
                     return Command::none();
@@ -344,8 +346,8 @@ impl Helper {
                     return Command::none();
                 };
                 warn!(
-                    "Crawler was unable to do: {action:?} on {}",
-                    server.ident.ident
+                    "Crawler was unable to complete: '{action}' on {}",
+                    server.ident.id
                 );
                 let CrawlingStatus::Crawling {
                     que_id,
@@ -460,10 +462,7 @@ impl Helper {
                 remember,
                 ident,
             } => {
-                info!(
-                    "Successfully logged in {ident:?} on {}",
-                    session.server_url()
-                );
+                info!("Successfully logged in {ident}",);
 
                 let Some(server) = self.servers.0.get_mut(&ident.server_id)
                 else {
@@ -541,7 +540,7 @@ impl Helper {
                 }
             }
             Message::LoggininFailure { error, ident } => {
-                error!("Error loggin in {ident:?}: {error}");
+                error!("Error loggin in {ident}: {error}");
                 let Some((_, player)) = self.servers.get_ident(&ident) else {
                     return Command::none();
                 };
@@ -814,7 +813,7 @@ impl Helper {
                 let mut lock = player.status.lock().unwrap();
                 *lock = AccountStatus::LoggingInAgain;
                 drop(lock);
-                warn!("Logging in {ident:?} again");
+                warn!("Logging in {ident} again");
                 return Command::perform(
                     async move {
                         let Ok(resp) = session.login().await else {
@@ -1439,7 +1438,7 @@ impl Helper {
                 lock.put_session(session);
             }
             Message::PlayerNotPolled { ident } => {
-                warn!("Unable to poll {ident:?}")
+                warn!("Unable to update {ident}")
             }
             Message::PlayerPolled { ident } => {
                 let Some(server) = self.servers.0.get_mut(&ident.server_id)
@@ -1646,7 +1645,7 @@ impl Helper {
             Message::SetBlacklistThr(nv) => {
                 self.config.blacklist_threshold = nv.max(1);
                 _ = self.config.write();
-            },
+            }
         }
         Command::none()
     }

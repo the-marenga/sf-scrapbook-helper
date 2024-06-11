@@ -10,6 +10,7 @@ use iced::{
     Alignment, Element, Length,
 };
 use iced_aw::number_input;
+use num_format::ToFormattedString;
 
 use crate::{
     config::Config,
@@ -55,20 +56,26 @@ pub fn view_scrapbook<'a>(
 
     left_col = left_col.push(row!(
         text("Items Found:").width(Length::FillPortion(1)),
-        text(si.scrapbook.items.len())
-            .width(Length::FillPortion(1))
-            .horizontal_alignment(Horizontal::Right)
+        text(
+            si.scrapbook
+                .items
+                .len()
+                .to_formatted_string(&config.num_format)
+        )
+        .width(Length::FillPortion(1))
+        .horizontal_alignment(Horizontal::Right)
     ));
 
     left_col = left_col.push(row!(
         text("Total Attributes:").width(Length::FillPortion(1)),
         text(
-            gs.character.attribute_basis.as_array().iter().sum::<u32>()
+            (gs.character.attribute_basis.as_array().iter().sum::<u32>()
                 + gs.character
                     .attribute_additions
                     .as_array()
                     .iter()
-                    .sum::<u32>()
+                    .sum::<u32>())
+            .to_formatted_string(&config.num_format)
         )
         .width(Length::FillPortion(1))
         .horizontal_alignment(Horizontal::Right)
@@ -96,10 +103,12 @@ pub fn view_scrapbook<'a>(
     match &gs.arena.next_free_fight {
         Some(x) if *x >= Local::now() => {
             let t = text("Next free fight:");
-            let secs = (*x - Local::now()).num_seconds();
+            let secs = (*x - Local::now()).num_seconds() % 60;
+            let mins = (*x - Local::now()).num_seconds() / 60;
+            let ttt = format!("{mins}:{secs:02}");
             let r = row!(
                 t.width(Length::FillPortion(1)),
-                text(format!("{secs}s"))
+                text(ttt)
                     .width(Length::FillPortion(1))
                     .horizontal_alignment(Horizontal::Right)
             );
@@ -158,7 +167,11 @@ pub fn view_scrapbook<'a>(
 
             banned = lock.invalid_accounts.iter().cloned().collect();
 
-            let progress_text = text(format!("Fetched {}/{}", crawled, total));
+            let progress_text = text(format!(
+                "Fetched {}/{}",
+                crawled.to_formatted_string(&config.num_format),
+                total.to_formatted_string(&config.num_format)
+            ));
             left_col = left_col.push(progress_text);
 
             let progress = progress_bar(0.0..=total as f32, crawled as f32)
@@ -309,7 +322,7 @@ pub fn view_scrapbook<'a>(
             text(
                 v.info
                     .stats
-                    .map(|a| a.to_string())
+                    .map(|a| a.to_formatted_string(&config.num_format))
                     .unwrap_or("???".to_string())
             )
             .width(Length::FillPortion(5))
