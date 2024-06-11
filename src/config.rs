@@ -1,5 +1,5 @@
 use iced::Theme;
-use num_format::{CustomFormat, SystemLocale};
+use num_format::CustomFormat;
 use serde::{Deserialize, Serialize};
 use sf_api::session::PWHash;
 
@@ -32,10 +32,7 @@ fn default_threads() -> usize {
 
 fn default_locale() -> CustomFormat {
     let mut cfb = CustomFormat::builder();
-    if let Ok(system) = SystemLocale::default() {
-        cfb = cfb.separator(system.separator());
-        cfb = cfb.grouping(system.grouping());
-    }
+    cfb = cfb.separator(",");
     cfb.build().unwrap_or_default()
 }
 

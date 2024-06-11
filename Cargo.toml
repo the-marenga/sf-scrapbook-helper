@@ -20,7 +20,7 @@ indicatif = "0.17.8"
 log = "0.4.21"
 log4rs = { version = "1.3.0"}
 nohash-hasher = "0.2"
-num-format = { version = "0.4.4", features = ["with-system-locale"] }
+num-format = "0.4.4"
 open = "5.1"
 reqwest = { version = "0.12", features = ["gzip", "deflate", "brotli"] }
 semver = "1.0.23"
