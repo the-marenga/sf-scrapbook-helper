@@ -1042,6 +1042,49 @@ impl Helper {
                     _ = self.config.write();
                 }
 
+                if let Some(existing) = self.config.get_sso_accounts_mut(&name)
+                {
+                    let mut new: HashSet<(ServerIdent, String)> =
+                        HashSet::new();
+                    for char in &chars {
+                        let name = char.username().trim().to_lowercase();
+                        new.insert((
+                            ServerIdent::new(char.server_url().as_str()),
+                            name,
+                        ));
+                    }
+
+                    let mut modified = false;
+
+                    existing.retain(|a| {
+                        let res = new.remove(&(
+                            ServerIdent::new(&a.ident.server),
+                            a.ident.name.trim().to_lowercase(),
+                        ));
+                        if !res {
+                            modified = true;
+                            info!("Removed a SSO char")
+                        }
+                        res
+                    });
+
+                    for (server, name) in new {
+                        modified = true;
+                        info!("Registered a a new SSO chars");
+                        existing.push(SFAccCharacter {
+                            config: CharacterConfig::default(),
+                            ident: SFCharIdent {
+                                name,
+                                server: server.url.to_string(),
+                            },
+                        })
+                    }
+
+                    if modified {
+                        _ = self.config.write();
+                    }
+                }
+
                 self.login_state.import_que.append(&mut chars);
 
                 res.status = SSOLoginStatus::Success;

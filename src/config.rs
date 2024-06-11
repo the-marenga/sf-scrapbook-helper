@@ -76,6 +76,24 @@ impl Default for Config {
 }
 
 impl Config {
+    pub fn get_sso_accounts_mut(
+        &mut self,
+        name: &str,
+    ) -> Option<&mut Vec<SFAccCharacter>> {
+        let lower_name = name.to_lowercase();
+        self.accounts
+            .iter_mut()
+            .flat_map(|a| match a {
+                AccountConfig::SF {
+                    name, characters, ..
+                } if name.to_lowercase().trim() == lower_name.trim() => {
+                    Some(characters)
+                }
+                _ => None,
+            })
+            .next()
+    }
+
     pub fn get_char_conf(
         &self,
         name: &str,
