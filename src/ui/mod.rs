@@ -11,6 +11,7 @@ use iced::{
     Alignment, Element, Length,
 };
 use iced_aw::number_input;
+use options::view_options;
 
 use self::{scrapbook::view_scrapbook, underworld::view_underworld};
 use crate::{
@@ -19,6 +20,7 @@ use crate::{
     AccountPage, Helper, View,
 };
 
+mod options;
 mod scrapbook;
 pub mod underworld;
 
@@ -94,6 +96,7 @@ impl Helper {
                 .size(20),
             selection(AccountPage::Scrapbook),
             selection(AccountPage::Underworld),
+            selection(AccountPage::Options),
             button(text("Logout"))
                 .on_press(Message::RemoveAccount {
                     ident: player.ident,
@@ -114,6 +117,7 @@ impl Helper {
                 server, player, self.config.max_threads, &self.config,
                 &self.class_images,
             ),
+            AccountPage::Options => view_options(player, server, &self.config),
         };
 
         let col_container = container(middle).center_y();
@@ -267,6 +271,17 @@ impl Helper {
                         .width(200.0),
                 );
                 info_row = info_row.push(horizontal_space());
+
+                let scrapbook_count: String = match &acc.scrapbook_info {
+                    Some(si) => si.scrapbook.items.len().to_string(),
+                    None => "".into(),
+                };
+
+                info_row = info_row.push(
+                    text(scrapbook_count)
+                        .width(40.0)
+                        .horizontal_alignment(Horizontal::Center),
+                );
 
                 let ff_width = 40.0;
                 match next_free_fight {

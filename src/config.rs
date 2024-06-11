@@ -2,6 +2,8 @@ use iced::Theme;
 use serde::{Deserialize, Serialize};
 use sf_api::session::PWHash;
 
+use crate::{server::ServerIdent, ServerID};
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Config {
     pub accounts: Vec<AccountConfig>,
@@ -53,6 +55,92 @@ impl Default for Config {
 }
 
 impl Config {
+    pub fn get_char_conf(
+        &self,
+        name: &str,
+        og_server: ServerID,
+    ) -> Option<&CharacterConfig> {
+        let mut res = None;
+
+        let lower_name = name.to_lowercase();
+        for acc in &self.accounts {
+            match acc {
+                AccountConfig::Regular {
+                    name,
+                    server,
+                    config,
+                    ..
+                } => {
+                    if ServerIdent::new(server).id != og_server {
+                        continue;
+                    }
+                    if name.to_lowercase().trim() != lower_name.trim() {
+                        continue;
+                    }
+                    res = Some(config);
+                    break;
+                }
+                AccountConfig::SF { characters, .. } => {
+                    for c in characters {
+                        if ServerIdent::new(&c.ident.server).id != og_server {
+                            continue;
+                        }
+                        if c.ident.name.to_lowercase().trim()
+                            != lower_name.trim()
+                        {
+                            continue;
+                        }
+                        res = Some(&c.config);
+                    }
+                }
+            }
+        }
+        res
+    }
+
+    pub fn get_char_conf_mut(
+        &mut self,
+        name: &str,
+        og_server: ServerID,
+    ) -> Option<&mut CharacterConfig> {
+        let mut res = None;
+
+        let lower_name = name.to_lowercase();
+        for acc in &mut self.accounts {
+            match acc {
+                AccountConfig::Regular {
+                    name,
+                    server,
+                    config,
+                    ..
+                } => {
+                    if ServerIdent::new(server).id != og_server {
+                        continue;
+                    }
+                    if name.to_lowercase().trim() != lower_name.trim() {
+                        continue;
+                    }
+                    res = Some(config);
+                    break;
+                }
+                AccountConfig::SF { characters, .. } => {
+                    for c in characters {
+                        if ServerIdent::new(&c.ident.server).id != og_server {
+                            continue;
+                        }
+                        if c.ident.name.to_lowercase().trim()
+                            != lower_name.trim()
+                        {
+                            continue;
+                        }
+                        res = Some(&mut c.config);
+                    }
+                }
+            }
+        }
+        res
+    }
+
     pub fn write(&self) -> Result<(), Box<dyn std::error::Error>> {
         let str = toml::to_string_pretty(self)?;
         std::fs::write("helper.toml", str)?;

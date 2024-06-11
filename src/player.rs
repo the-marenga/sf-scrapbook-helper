@@ -13,7 +13,7 @@ use sf_api::{
 use tokio::time::sleep;
 
 use crate::{
-    config::Config, login::PlayerAuth, message::Message, AccountIdent,
+    config::CharacterConfig, login::PlayerAuth, message::Message, AccountIdent,
     AttackTarget, CharacterInfo,
 };
 
@@ -63,14 +63,17 @@ pub struct ScrapbookInfo {
 }
 
 impl ScrapbookInfo {
-    pub fn new(gs: &GameState, _config: &Config) -> Option<Self> {
+    pub fn new(
+        gs: &GameState,
+        config: Option<&CharacterConfig>,
+    ) -> Option<Self> {
         Some(Self {
             scrapbook: gs.character.scrapbok.as_ref()?.clone(),
             best: Default::default(),
             max_level: gs.character.level,
             blacklist: Default::default(),
             attack_log: Default::default(),
-            auto_battle: false,
+            auto_battle: config.map(|a| a.auto_battle).unwrap_or(false),
         })
     }
 }
@@ -80,7 +83,6 @@ impl AccountInfo {
         name: &str,
         auth: PlayerAuth,
         ident: AccountIdent,
-        _config: &Config,
     ) -> AccountInfo {
         AccountInfo {
             name: name.to_string(),
@@ -108,7 +110,7 @@ impl AccountStatus {
         reason: T,
     ) -> Option<Box<Session>> {
         let mut res = None;
-        *self = match std::mem::replace(self, AccountStatus::LoggingIn) {
+        *self = match std::mem::replace(self, AccountStatus::LoggingInAgain) {
             AccountStatus::Idle(a, b) => {
                 res = Some(a);
                 AccountStatus::Busy(b, reason.into())
@@ -119,7 +121,7 @@ impl AccountStatus {
     }
 
     pub fn put_session(&mut self, session: Box<Session>) {
-        *self = match std::mem::replace(self, AccountStatus::LoggingIn) {
+        *self = match std::mem::replace(self, AccountStatus::LoggingInAgain) {
             AccountStatus::Busy(a, _) => AccountStatus::Idle(session, a),
             x => x,
         };
@@ -147,7 +149,7 @@ impl AutoAttackChecker {
                 tokio::time::sleep(remaining).await;
             }
         };
-        tokio::time::sleep(Duration::from_millis(fastrand::u64(3000..=6000)))
+        tokio::time::sleep(Duration::from_millis(fastrand::u64(1000..=3000)))
             .await;
 
         Message::AutoFightPossible { ident: self.ident }

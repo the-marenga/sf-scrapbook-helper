@@ -184,6 +184,7 @@ pub enum Message {
         action: CrawlAction,
     },
     ViewLogin,
+
     LoginNameInputChange(String),
     LoginPWInputChange(String),
     LoginServerChange(String),
@@ -203,6 +204,16 @@ pub enum Message {
     ResetCrawling {
         server: ServerID,
         status: Box<RestoreData>,
+    },
+    ConfigSetAutoLogin {
+        name: String,
+        server: ServerID,
+        nv: bool,
+    },
+    ConfigSetAutoBattle {
+        name: String,
+        server: ServerID,
+        nv: bool,
     },
 }
 
@@ -462,8 +473,6 @@ impl Helper {
                     return Command::none();
                 };
 
-                player.scrapbook_info = ScrapbookInfo::new(&gs, &self.config);
-
                 if remember {
                     match &player.auth {
                         PlayerAuth::Normal(hash) => {
@@ -494,7 +503,10 @@ impl Helper {
                 let total_players = gs.hall_of_fames.players_total;
                 let total_pages = (total_players as usize).div_ceil(PER_PAGE);
 
-                player.scrapbook_info = ScrapbookInfo::new(&gs, &self.config);
+                let char_conf =
+                    self.config.get_char_conf(&player.name, ident.server_id);
+
+                player.scrapbook_info = ScrapbookInfo::new(&gs, char_conf);
                 player.underworld_info = UnderworldInfo::new(&gs);
 
                 *player.status.lock().unwrap() =
@@ -1612,6 +1624,22 @@ impl Helper {
                         selected.remove(&v);
                     }
                 }
+            }
+            Message::ConfigSetAutoLogin { name, server, nv } => {
+                let Some(config) = self.config.get_char_conf_mut(&name, server)
+                else {
+                    return Command::none();
+                };
+                config.login = nv;
+                _ = self.config.write();
+            }
+            Message::ConfigSetAutoBattle { name, server, nv } => {
+                let Some(config) = self.config.get_char_conf_mut(&name, server)
+                else {
+                    return Command::none();
+                };
+                config.auto_battle = nv;
+                _ = self.config.write();
             }
         }
         Command::none()

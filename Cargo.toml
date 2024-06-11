@@ -33,11 +33,12 @@ toml = "0.8"
 [profile.release]
 strip = true
 lto = true
+opt-level = 3
 
 [profile.dev]
 opt-level = 1
 
-[profile.dev.package.iced]
+[profile.dev.package."*"]
 opt-level = 2
 
 [build-dependencies]

@@ -106,7 +106,7 @@ fn main() -> iced::Result {
     let mut settings = Settings::with_flags(args);
     settings.window.min_size = Some(iced::Size {
         width: 700.0,
-        height: 400.0,
+        height: 700.0,
     });
     settings.default_text_size = 14.0f32.into();
     settings.window.visible = !is_headless;
@@ -226,6 +226,7 @@ enum View {
 enum AccountPage {
     Scrapbook,
     Underworld,
+    Options,
 }
 
 fn get_server_code(server: &str) -> String {

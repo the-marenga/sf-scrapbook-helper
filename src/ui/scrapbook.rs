@@ -27,6 +27,7 @@ pub fn view_scrapbook<'a>(
     images: &'a ClassImages,
 ) -> Element<'a, Message> {
     let lock = player.status.lock().unwrap();
+
     let gs = match &*lock {
         AccountStatus::LoggingIn => return text("Logging in").size(20).into(),
         AccountStatus::Idle(_, gs) => gs,
@@ -35,7 +36,7 @@ pub fn view_scrapbook<'a>(
             return text(format!("Error: {err}")).size(20).into()
         }
         AccountStatus::LoggingInAgain => {
-            return text("Logging in player again".to_string()).size(20).into()
+            return text("Logging in again".to_string()).size(20).into()
         }
     };
 
