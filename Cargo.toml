@@ -32,11 +32,11 @@ toml = "0.8"
 
 [profile.release]
 strip = true
-lto = true
+lto = "thin"
 opt-level = 3
 
 [profile.dev]
-opt-level = 1
+opt-level = 0
 
 [profile.dev.package."*"]
 opt-level = 2

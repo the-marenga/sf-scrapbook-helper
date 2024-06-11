@@ -94,6 +94,7 @@ pub enum Message {
     SSORetry,
     SSOAuthError(String),
     SetMaxThreads(usize),
+    SetBlacklistThr(usize),
     SetAutoFetch(bool),
     SetAutoPoll(bool),
     ViewSubPage {
@@ -1267,6 +1268,7 @@ impl Helper {
 
                 let mut per_player_counts = calc_per_player_count(
                     player_info, equipment, &scrapbook, si,
+                    self.config.blacklist_threshold,
                 );
 
                 let mut target_list = Vec::new();
@@ -1641,6 +1643,10 @@ impl Helper {
                 config.auto_battle = nv;
                 _ = self.config.write();
             }
+            Message::SetBlacklistThr(nv) => {
+                self.config.blacklist_threshold = nv.max(1);
+                _ = self.config.write();
+            },
         }
         Command::none()
     }

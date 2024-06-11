@@ -647,7 +647,7 @@ impl Helper {
 
         if let Some(si) = &mut account.scrapbook_info {
             let per_player_counts = calc_per_player_count(
-                player_info, equipment, &si.scrapbook.items, si,
+                player_info, equipment, &si.scrapbook.items, si, self.config.blacklist_threshold
             );
             let mut best_players =
                 find_best(&per_player_counts, player_info, result_limit);
@@ -723,6 +723,7 @@ pub fn calc_per_player_count(
     >,
     scrapbook: &HashSet<EquipmentIdent>,
     si: &ScrapbookInfo,
+    blacklist_th: usize,
 ) -> IntMap<u32, usize> {
     let mut per_player_counts = IntMap::default();
     per_player_counts.reserve(player_info.len());
@@ -746,7 +747,7 @@ pub fn calc_per_player_count(
         }
 
         if let Some((_, lost)) = si.blacklist.get(&info.uid) {
-            if *lost >= 5 {
+            if *lost >= blacklist_th.max(1) {
                 return false;
             }
         }

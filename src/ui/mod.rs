@@ -186,9 +186,23 @@ impl Helper {
             .width(Length::Fill)
             .align_items(Alignment::Center);
 
+        let blacklist_threshold = number_input(
+            self.config.blacklist_threshold,
+            10,
+            Message::SetBlacklistThr,
+        );
+
+        let blacklist_threshold = row!(
+            "Blacklist threshhold:",
+            horizontal_space(),
+            blacklist_threshold
+        )
+        .width(Length::Fill)
+        .align_items(Alignment::Center);
+
         let settings_column = column!(
             theme_row, auto_fetch_hof, auto_poll, max_threads,
-            crawling_restrict, show_class_icons
+            blacklist_threshold, crawling_restrict, show_class_icons
         )
         .width(Length::Fixed(300.0))
         .spacing(20);

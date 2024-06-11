@@ -18,10 +18,16 @@ pub struct Config {
     pub show_crawling_restrict: bool,
     #[serde(default = "default_class_icons")]
     pub show_class_icons: bool,
+    #[serde(default = "default_blacklist_threshhold")]
+    pub blacklist_threshold: usize,
 }
 
 fn default_threads() -> usize {
     10
+}
+
+fn default_blacklist_threshhold() -> usize {
+    3
 }
 
 fn default_class_icons() -> bool {
@@ -50,6 +56,7 @@ impl Default for Config {
             auto_poll: false,
             show_crawling_restrict: false,
             show_class_icons: true,
+            blacklist_threshold: 1,
         }
     }
 }
