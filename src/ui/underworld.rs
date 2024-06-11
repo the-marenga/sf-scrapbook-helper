@@ -97,6 +97,11 @@ pub fn view_underworld<'a>(
             })
             .size(20),
     );
+    left_col = left_col.push(button("Copy Targets").on_press(
+        Message::CopyBestLures {
+            ident: player.ident,
+        },
+    ));
 
     if !info.attack_log.is_empty() {
         let mut log = column!().padding(5).spacing(5);

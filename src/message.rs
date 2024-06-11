@@ -1,4 +1,4 @@
-use std::{sync::Arc, time::Duration};
+use std::{fmt::Write, sync::Arc, time::Duration};
 
 use chrono::Local;
 use config::{CharacterConfig, SFAccCharacter, SFCharIdent};
@@ -227,6 +227,9 @@ pub enum Message {
     UIActive,
     AutoLureIdle,
     AutoLurePossible {
+        ident: AccountIdent,
+    },
+    CopyBestLures {
         ident: AccountIdent,
     },
 }
@@ -1750,6 +1753,39 @@ impl Helper {
                 };
 
                 si.auto_lure = state;
+            }
+            Message::CopyBestLures { ident } => {
+                let Some(server) = self.servers.0.get_mut(&ident.server_id)
+                else {
+                    return Command::none();
+                };
+                let Some(player) = server.accounts.get_mut(&ident.account)
+                else {
+                    return Command::none();
+                };
+
+                let Some(si) = &mut player.underworld_info else {
+                    return Command::none();
+                };
+
+                let mut res = format!(
+                    "Best lure targets on {}. Max Lvl = {}\n",
+                    server.ident.url, si.max_level
+                );
+
+                for a in &si.best {
+                    if a.is_old() {
+                        continue;
+                    }
+                    _ = res.write_fmt(format_args!(
+                        "lvl: {:3}, items: {}, name: {}\n",
+                        a.level,
+                        a.equipment.len(),
+                        a.name,
+                    ));
+                }
+
+                return iced::clipboard::write(res);
             }
         }
         Command::none()
