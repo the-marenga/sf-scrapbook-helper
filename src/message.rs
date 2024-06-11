@@ -128,6 +128,10 @@ pub enum Message {
         ident: AccountIdent,
         state: bool,
     },
+    AutoLure {
+        ident: AccountIdent,
+        state: bool,
+    },
     PlayerCommandFailed {
         ident: AccountIdent,
         session: Box<Session>,
@@ -211,6 +215,11 @@ pub enum Message {
         nv: bool,
     },
     ConfigSetAutoBattle {
+        name: String,
+        server: ServerID,
+        nv: bool,
+    },
+    ConfigSetAutoLure {
         name: String,
         server: ServerID,
         nv: bool,
@@ -1717,6 +1726,30 @@ impl Helper {
                 );
 
                 return Command::batch([refetch, fight]);
+            }
+            Message::ConfigSetAutoLure { name, server, nv } => {
+                let Some(config) = self.config.get_char_conf_mut(&name, server)
+                else {
+                    return Command::none();
+                };
+                config.auto_lure = nv;
+                _ = self.config.write();
+            }
+            Message::AutoLure { ident, state } => {
+                let Some(server) = self.servers.0.get_mut(&ident.server_id)
+                else {
+                    return Command::none();
+                };
+                let Some(player) = server.accounts.get_mut(&ident.account)
+                else {
+                    return Command::none();
+                };
+
+                let Some(si) = &mut player.underworld_info else {
+                    return Command::none();
+                };
+
+                si.auto_lure = state;
             }
         }
         Command::none()

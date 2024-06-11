@@ -2,8 +2,8 @@ use iced::{
     alignment::Horizontal,
     theme,
     widget::{
-        button, column, horizontal_space, pick_list, progress_bar, row,
-        scrollable, text, vertical_space, Image,
+        button, checkbox, column, horizontal_space, pick_list, progress_bar,
+        row, scrollable, text, vertical_space, Image,
     },
     Alignment, Element, Length,
 };
@@ -89,6 +89,14 @@ pub fn view_underworld<'a>(
     let max_lvl = row!(text("Max Level:"), horizontal_space(), max_lvl)
         .align_items(Alignment::Center);
     left_col = left_col.push(max_lvl);
+    left_col = left_col.push(
+        checkbox("Auto Lure", info.auto_lure)
+            .on_toggle(|a| Message::AutoLure {
+                ident: player.ident,
+                state: a,
+            })
+            .size(20),
+    );
 
     if !info.attack_log.is_empty() {
         let mut log = column!().padding(5).spacing(5);

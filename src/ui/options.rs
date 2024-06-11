@@ -44,6 +44,16 @@ pub fn view_options<'a>(
         ),
     );
 
+    all = all.push(
+        checkbox("Enable auto-lure on login", config.auto_lure).on_toggle(
+            |nv| Message::ConfigSetAutoLure {
+                name: player.name.clone(),
+                server: og_server.ident.id,
+                nv,
+            },
+        ),
+    );
+
     column!(all)
         .padding(20)
         .height(Length::Fill)
