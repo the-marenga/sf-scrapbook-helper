@@ -10,6 +10,7 @@ use sf_api::{
     sso::SSOProvider,
 };
 use tokio::time::sleep;
+use ui::OverviewAction;
 
 use self::{
     backup::{get_newest_backup, restore_backup, RestoreData},
@@ -24,6 +25,9 @@ use crate::{
 
 #[derive(Debug, Clone)]
 pub enum Message {
+    MultiAction {
+        action: OverviewAction,
+    },
     FontLoaded(Result<(), iced::font::Error>),
     CrawlAllRes {
         servers: Option<Vec<String>>,
@@ -232,6 +236,7 @@ pub enum Message {
     CopyBestLures {
         ident: AccountIdent,
     },
+    SetAction(Option<ActionSelection>),
 }
 
 impl Helper {
@@ -990,6 +995,7 @@ impl Helper {
             Message::ViewOverview => {
                 self.current_view = View::Overview {
                     selected: Default::default(),
+                    action: Default::default(),
                 };
             }
             Message::ChangeTheme(theme) => {
@@ -1668,9 +1674,12 @@ impl Helper {
                 return self.login(account, false, PlayerAuth::SSO, true);
             }
             Message::SetOverviewSelected { ident, val } => {
-                let View::Overview { selected } = &mut self.current_view else {
+                let View::Overview { selected, action } =
+                    &mut self.current_view
+                else {
                     return Command::none();
                 };
+                *action = None;
                 if val {
                     for v in ident {
                         selected.insert(v);
@@ -1829,6 +1838,41 @@ impl Helper {
                 }
 
                 return iced::clipboard::write(res);
+            }
+            Message::SetAction(a) => {
+                let View::Overview { action, .. } = &mut self.current_view
+                else {
+                    return Command::none();
+                };
+                *action = a;
+            }
+            Message::MultiAction { action } => {
+                let View::Overview {
+                    action: ac,
+                    selected,
+                } = &mut self.current_view
+                else {
+                    return Command::none();
+                };
+                let targets = match ac {
+                    Some(ActionSelection::Multi) => {
+                        selected.iter().copied().collect()
+                    }
+                    Some(ActionSelection::Character(c)) => vec![*c],
+                    None => return Command::none(),
+                };
+
+                *ac = None;
+
+                let messages = match action {
+                    OverviewAction::Logout => targets
+                        .into_iter()
+                        .map(|a| Message::RemoveAccount { ident: a }),
+                };
+
+                return Command::batch(
+                    messages.map(|a| Command::perform(async {}, move |_| a)),
+                );
             }
         }
         Command::none()

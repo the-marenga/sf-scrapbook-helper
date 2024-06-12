@@ -13,7 +13,7 @@ clap-num = "1.1.1"
 fastrand = "2.1"
 iced = { version = "0.12", default-features = false, features = ["tokio", "lazy", "image", "advanced"] }
 iced_aw = { version = "0.9", default-features = false, features = [
-    "number_input", "icons"
+    "number_input", "icons", "drop_down"
 ] }
 image = { version = "0.25", default-features = false, features = ["ico", "webp"] }
 indicatif = "0.17.8"

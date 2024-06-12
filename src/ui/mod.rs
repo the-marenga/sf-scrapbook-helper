@@ -3,14 +3,14 @@ use std::collections::HashSet;
 use chrono::{DateTime, Local};
 use iced::{
     alignment::Horizontal,
-    theme::{self},
+    theme,
     widget::{
         self, button, checkbox, column, container, horizontal_space, pick_list,
-        row, text,
+        row, text, Button,
     },
     Alignment, Element, Length,
 };
-use iced_aw::number_input;
+use iced_aw::{number_input, widgets::DropDown};
 use num_format::ToFormattedString;
 use options::view_options;
 
@@ -21,7 +21,7 @@ use crate::{
     message::Message,
     player::{AccountInfo, AccountStatus},
     server::{CrawlingStatus, ServerInfo},
-    top_bar, AccountIdent, AccountPage, Helper, View,
+    top_bar, AccountIdent, AccountPage, ActionSelection, Helper, View,
 };
 
 mod options;
@@ -35,7 +35,9 @@ impl Helper {
             View::Login => self
                 .login_state
                 .view(&self.config.accounts, self.has_accounts()),
-            View::Overview { selected } => self.view_overview(selected),
+            View::Overview { selected, action } => {
+                self.view_overview(selected, action)
+            }
             View::Settings => self.view_settings(),
         };
         let main_part = container(view).width(Length::Fill).center_x();
@@ -222,6 +224,7 @@ impl Helper {
     fn view_overview(
         &self,
         selected: &HashSet<AccountIdent>,
+        currrent_action: &Option<ActionSelection>,
     ) -> Element<Message> {
         let top_bar =
             top_bar(text("Overview").size(20).into(), Some(Message::ViewLogin));
@@ -261,7 +264,31 @@ impl Helper {
             })
             .size(13.0);
 
-        let full_row = row!(cb, info_row).align_items(Alignment::Center);
+        let this_action = Some(ActionSelection::Multi);
+        let is_acting = currrent_action == &this_action;
+
+        let mut action_button = button(
+            iced_aw::core::icons::bootstrap::icon_to_text(
+                iced_aw::Bootstrap::CaretDown,
+            )
+            .size(18.0),
+        )
+        .padding(4.0);
+
+        if is_acting {
+            action_button = action_button.on_press(Message::SetAction(None))
+        } else if !selected.is_empty() {
+            action_button = action_button.on_press(Message::SetAction(this_action))
+        }
+
+        let action_dd =
+            DropDown::new(action_button, self.overview_actions(), is_acting)
+                .width(Length::Fill)
+                .on_dismiss(Message::SetAction(None))
+                .alignment(iced_aw::drop_down::Alignment::Bottom);
+
+        let full_row =
+            row!(cb, info_row, action_dd).align_items(Alignment::Center);
 
         accounts = accounts.push(full_row);
 
@@ -302,8 +329,34 @@ impl Helper {
                     })
                     .size(13.0);
 
-                let full_row =
-                    row!(cb, info_row).align_items(Alignment::Center);
+                let this_action = Some(ActionSelection::Character(ident));
+                let is_acting = currrent_action == &this_action;
+
+                let action_button = button(
+                    iced_aw::core::icons::bootstrap::icon_to_text(
+                        iced_aw::Bootstrap::CaretDown,
+                    )
+                    .size(18.0),
+                )
+                .on_press(if is_acting {
+                    Message::SetAction(None)
+                } else {
+                    Message::SetAction(this_action)
+                })
+                .padding(4.0);
+
+                let action_dd = DropDown::new(
+                    action_button,
+                    self.overview_actions(),
+                    is_acting,
+                )
+                .width(Length::Fill)
+                .on_dismiss(Message::SetAction(None))
+                .alignment(iced_aw::drop_down::Alignment::Bottom);
+
+                let full_row = row!(cb, info_row, action_dd)
+                    .spacing(5.0)
+                    .align_items(Alignment::Center);
 
                 accounts = accounts.push(full_row);
             }
@@ -316,6 +369,26 @@ impl Helper {
             .align_items(Alignment::Center)
             .into()
     }
+    fn overview_actions(&self) -> Element<Message> {
+        let mut all_actions = row!();
+
+        fn action(button: Button<Message>) -> Button<Message> {
+            button.width(80.0)
+        }
+
+        all_actions = all_actions.push(action(button("Logout").on_press(
+            Message::MultiAction {
+                action: OverviewAction::Logout,
+            },
+        )));
+
+        all_actions.into()
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum OverviewAction {
+    Logout,
 }
 
 const ACC_STATUS_WIDTH: f32 = 80.0;

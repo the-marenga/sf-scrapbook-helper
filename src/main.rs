@@ -218,9 +218,16 @@ enum View {
     },
     Overview {
         selected: HashSet<AccountIdent>,
+        action: Option<ActionSelection>,
     },
     Login,
     Settings,
+}
+
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+pub enum ActionSelection {
+    Multi,
+    Character(AccountIdent),
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
@@ -421,6 +428,7 @@ impl Application for Helper {
         if loading > 0 {
             helper.current_view = View::Overview {
                 selected: Default::default(),
+                action: Default::default(),
             };
         }
 
