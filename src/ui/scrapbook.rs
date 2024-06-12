@@ -12,6 +12,7 @@ use iced::{
 use iced_aw::number_input;
 use num_format::ToFormattedString;
 
+use super::remaining_minutes;
 use crate::{
     config::Config,
     crawler::CrawlingOrder,
@@ -103,12 +104,9 @@ pub fn view_scrapbook<'a>(
     match &gs.arena.next_free_fight {
         Some(x) if *x >= Local::now() => {
             let t = text("Next free fight:");
-            let secs = (*x - Local::now()).num_seconds() % 60;
-            let mins = (*x - Local::now()).num_seconds() / 60;
-            let ttt = format!("{mins}:{secs:02}");
             let r = row!(
                 t.width(Length::FillPortion(1)),
-                text(ttt)
+                text(remaining_minutes(*x))
                     .width(Length::FillPortion(1))
                     .horizontal_alignment(Horizontal::Right)
             );

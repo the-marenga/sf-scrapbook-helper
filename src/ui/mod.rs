@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 
-use chrono::Local;
+use chrono::{DateTime, Local};
 use iced::{
     alignment::Horizontal,
     theme,
@@ -16,9 +16,12 @@ use options::view_options;
 
 use self::{scrapbook::view_scrapbook, underworld::view_underworld};
 use crate::{
-    config::AvailableTheme, get_server_code, message::Message,
-    player::AccountStatus, server::CrawlingStatus, top_bar, AccountIdent,
-    AccountPage, Helper, View,
+    config::{AvailableTheme, Config},
+    get_server_code,
+    message::Message,
+    player::{AccountInfo, AccountStatus},
+    server::{CrawlingStatus, ServerInfo},
+    top_bar, AccountIdent, AccountPage, Helper, View,
 };
 
 mod options;
@@ -231,6 +234,22 @@ impl Helper {
             .width(Length::Fill)
             .align_items(Alignment::Center);
 
+        let info_row = row!(
+            center(text("Status").width(ACC_STATUS_WIDTH)),
+            center(text("Server").width(SERVER_CODE_WIDTH)),
+            text("Name").width(ACC_NAME_WIDTH),
+            horizontal_space(),
+            center(text("Scrapbook").width(SCRAPBOOK_COUNT_WIDTH)),
+            center(text("Next B").width(NEXT_FIGHT_WIDTH)),
+            center(text("Auto B").width(AUTO_BATTLE_WIDTH)),
+            text("Crawling").width(CRAWLING_STATUS_WIDTH),
+        )
+        .spacing(10.0)
+        .width(Length::Fill)
+        .padding(5.0);
+
+        accounts = accounts.push(info_row);
+
         let mut servers: Vec<_> = self.servers.0.values().collect();
         servers.sort_by_key(|a| &a.ident.ident);
         for server in servers {
@@ -245,7 +264,9 @@ impl Helper {
                     if remaining == 0 {
                         "Finished".into()
                     } else {
-                        format!("{remaining}").into()
+                        remaining
+                            .to_formatted_string(&self.config.num_format)
+                            .into()
                     }
                 }
             };
@@ -253,125 +274,21 @@ impl Helper {
             let mut accs: Vec<_> = server.accounts.values().collect();
             accs.sort_by_key(|a| &a.name);
             for acc in accs {
-                let status = acc.status.lock().unwrap();
-                let mut info_row = row!().spacing(10.0);
-                let status_width = 80.0;
-                let status_text = |t: &str| text(t).width(status_width);
+                let info_row =
+                    overview_row(acc, server, &server_status, &self.config);
+                // selected.contains(&acc.ident),
 
-                let mut next_free_fight = None;
+                // let ident = acc.ident;
+                // let cb = checkbox("", selected)
+                //     .on_toggle(move |nv| Message::SetOverviewSelected {
+                //         ident: vec![ident],
+                //         val: nv,
+                //     })
+                //     .size(13.0);
 
-                match &*status {
-                    AccountStatus::LoggingIn => {
-                        info_row = info_row.push(status_text("Logging in"));
-                    }
-                    AccountStatus::Idle(_, gs) => {
-                        next_free_fight = Some(gs.arena.next_free_fight);
-                        info_row = info_row.push(status_text("Active"));
-                    }
-                    AccountStatus::Busy(gs, reason) => {
-                        next_free_fight = Some(gs.arena.next_free_fight);
-                        info_row = info_row.push(status_text(reason));
-                    }
-                    AccountStatus::FatalError(_) => {
-                        info_row = info_row.push(status_text("Error!"));
-                    }
-                    AccountStatus::LoggingInAgain => {
-                        info_row = info_row.push(status_text("Logging in"));
-                    }
-                };
-                info_row = info_row
-                    .push(text(get_server_code(&server.ident.url)).width(50.0));
-                info_row = info_row.push(
-                    text(titlecase::titlecase(acc.name.as_str()).to_string())
-                        .width(200.0),
-                );
-                info_row = info_row.push(horizontal_space());
+                // let row = row!(cb, b).align_items(Alignment::Center);
 
-                let scrapbook_count: String = match &acc.scrapbook_info {
-                    Some(si) => si
-                        .scrapbook
-                        .items
-                        .len()
-                        .to_formatted_string(&self.config.num_format),
-                    None => "".into(),
-                };
-
-                info_row = info_row.push(
-                    text(scrapbook_count)
-                        .width(40.0)
-                        .horizontal_alignment(Horizontal::Center),
-                );
-
-                let ff_width = 40.0;
-                match next_free_fight {
-                    None => {
-                        let g = iced_aw::core::icons::bootstrap::icon_to_text(
-                            iced_aw::Bootstrap::Question,
-                        );
-                        info_row = info_row.push(
-                            g.width(ff_width)
-                                .size(18.0)
-                                .horizontal_alignment(Horizontal::Center),
-                        );
-                    }
-                    Some(Some(x)) if x >= Local::now() => {
-                        let secs = (x - Local::now()).num_seconds() % 60;
-                        let mins = (x - Local::now()).num_seconds() / 60;
-                        let ttt = format!("{mins}:{secs:02}");
-                        info_row = info_row.push(
-                            text(ttt)
-                                .width(ff_width)
-                                .horizontal_alignment(Horizontal::Center),
-                        );
-                    }
-                    Some(_) => {
-                        let g = iced_aw::core::icons::bootstrap::icon_to_text(
-                            iced_aw::Bootstrap::Check,
-                        );
-                        info_row = info_row.push(
-                            g.width(ff_width)
-                                .size(18.0)
-                                .horizontal_alignment(Horizontal::Center),
-                        );
-                    }
-                };
-
-                let abs = if let Some(sbi) = &acc.scrapbook_info {
-                    if sbi.auto_battle {
-                        iced_aw::core::icons::bootstrap::icon_to_text(
-                            iced_aw::Bootstrap::Check,
-                        )
-                    } else {
-                        iced_aw::core::icons::bootstrap::icon_to_text(
-                            iced_aw::Bootstrap::X,
-                        )
-                    }
-                } else {
-                    iced_aw::core::icons::bootstrap::icon_to_text(
-                        iced_aw::Bootstrap::Question,
-                    )
-                };
-
-                info_row = info_row.push(
-                    abs.width(40.0)
-                        .size(18.0)
-                        .horizontal_alignment(Horizontal::Center),
-                );
-                info_row = info_row.push(text(&server_status).width(80.0));
-
-                let b = button(info_row)
-                    .on_press(Message::ShowPlayer { ident: acc.ident })
-                    .width(Length::Fill)
-                    .style(theme::Button::Secondary);
-                let ident = acc.ident;
-                let cb = checkbox("", selected.contains(&acc.ident))
-                    .on_toggle(move |nv| Message::SetOverviewSelected {
-                        ident: vec![ident],
-                        val: nv,
-                    })
-                    .size(13.0);
-                let row = row!(cb, b).align_items(Alignment::Center);
-                accounts = accounts.push(row);
+                accounts = accounts.push(info_row);
             }
         }
 
@@ -393,4 +310,117 @@ impl Helper {
             .align_items(Alignment::Center)
             .into()
     }
+}
+
+const ACC_STATUS_WIDTH: f32 = 80.0;
+const ACC_NAME_WIDTH: f32 = 200.0;
+const SERVER_CODE_WIDTH: f32 = 50.0;
+const SCRAPBOOK_COUNT_WIDTH: f32 = 80.0;
+const NEXT_FIGHT_WIDTH: f32 = 40.0;
+const AUTO_BATTLE_WIDTH: f32 = 40.0;
+const CRAWLING_STATUS_WIDTH: f32 = 80.0;
+
+fn overview_row<'a>(
+    acc: &'a AccountInfo,
+    server: &'a ServerInfo,
+    crawling_status: &'_ str,
+    config: &'a Config,
+) -> Element<'a, Message> {
+    let status_text = |t: &str| center(text(t).width(ACC_STATUS_WIDTH));
+
+    let mut next_free_fight = None;
+
+    let acc_status = match &*acc.status.lock().unwrap() {
+        AccountStatus::LoggingIn => status_text("Logging in"),
+        AccountStatus::Idle(_, gs) => {
+            next_free_fight = Some(gs.arena.next_free_fight);
+            status_text("Active")
+        }
+        AccountStatus::Busy(gs, reason) => {
+            next_free_fight = Some(gs.arena.next_free_fight);
+            status_text(reason)
+        }
+        AccountStatus::FatalError(_) => status_text("Error!"),
+        AccountStatus::LoggingInAgain => status_text("Logging in"),
+    };
+
+    let server_code =
+        center(text(get_server_code(&server.ident.url)).width(SERVER_CODE_WIDTH));
+
+    let acc_name = text(titlecase::titlecase(acc.name.as_str()).to_string())
+        .width(ACC_NAME_WIDTH);
+
+    let scrapbook_count: String = match &acc.scrapbook_info {
+        Some(si) => si
+            .scrapbook
+            .items
+            .len()
+            .to_formatted_string(&config.num_format),
+        None => "".into(),
+    };
+    let scrapbook_count = text(scrapbook_count)
+        .width(SCRAPBOOK_COUNT_WIDTH)
+        .horizontal_alignment(Horizontal::Center);
+
+    let icon_to_nff = |icon| {
+        center(
+            iced_aw::core::icons::bootstrap::icon_to_text(icon)
+                .width(NEXT_FIGHT_WIDTH)
+                .size(18.0),
+        )
+    };
+
+    let next_free_fight = match next_free_fight {
+        None => icon_to_nff(iced_aw::Bootstrap::Question),
+        Some(Some(x)) if x >= Local::now() => text(remaining_minutes(x))
+            .width(NEXT_FIGHT_WIDTH)
+            .horizontal_alignment(Horizontal::Center),
+        Some(_) => icon_to_nff(iced_aw::Bootstrap::Check),
+    };
+
+    let abs = if let Some(sbi) = &acc.scrapbook_info {
+        if sbi.auto_battle {
+            iced_aw::Bootstrap::Check
+        } else {
+            iced_aw::Bootstrap::X
+        }
+    } else {
+        iced_aw::Bootstrap::Question
+    };
+    let abs = center(
+        iced_aw::core::icons::bootstrap::icon_to_text(abs)
+            .width(AUTO_BATTLE_WIDTH)
+            .size(18.0),
+    );
+
+    let crawling_status = text(crawling_status).width(CRAWLING_STATUS_WIDTH);
+
+    let info_row = row!(
+        acc_status,
+        server_code,
+        acc_name,
+        horizontal_space(),
+        scrapbook_count,
+        next_free_fight,
+        abs,
+        crawling_status
+    )
+    .spacing(10.0);
+
+    button(info_row)
+        .on_press(Message::ShowPlayer { ident: acc.ident })
+        .width(Length::Fill)
+        .style(theme::Button::Secondary)
+        .into()
+}
+
+fn remaining_minutes(time: DateTime<Local>) -> String {
+    let now = Local::now();
+    let secs = (time - now).num_seconds() % 60;
+    let mins = (time - now).num_seconds() / 60;
+    format!("{mins}:{secs:02}")
+}
+
+fn center(t: text::Text) -> text::Text {
+    t.horizontal_alignment(Horizontal::Center)
 }
