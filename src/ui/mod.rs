@@ -3,7 +3,7 @@ use std::collections::HashSet;
 use chrono::{DateTime, Local};
 use iced::{
     alignment::Horizontal,
-    theme,
+    theme::{self},
     widget::{
         self, button, checkbox, column, container, horizontal_space, pick_list,
         row, text,
@@ -223,10 +223,8 @@ impl Helper {
         &self,
         selected: &HashSet<AccountIdent>,
     ) -> Element<Message> {
-        let top_bar = top_bar(
-            text("Characters").size(20).into(),
-            Some(Message::ViewLogin),
-        );
+        let top_bar =
+            top_bar(text("Overview").size(20).into(), Some(Message::ViewLogin));
 
         let mut accounts = column!()
             .padding(20)
@@ -248,7 +246,24 @@ impl Helper {
         .width(Length::Fill)
         .padding(5.0);
 
-        accounts = accounts.push(info_row);
+        let all_active: Vec<_> = self
+            .servers
+            .0
+            .values()
+            .flat_map(|a| a.accounts.values())
+            .map(|a| a.ident)
+            .collect();
+
+        let cb = checkbox("", all_active.iter().all(|a| selected.contains(a)))
+            .on_toggle(move |nv| Message::SetOverviewSelected {
+                ident: all_active.clone(),
+                val: nv,
+            })
+            .size(13.0);
+
+        let full_row = row!(cb, info_row).align_items(Alignment::Center);
+
+        accounts = accounts.push(full_row);
 
         let mut servers: Vec<_> = self.servers.0.values().collect();
         servers.sort_by_key(|a| &a.ident.ident);
@@ -276,35 +291,26 @@ impl Helper {
             for acc in accs {
                 let info_row =
                     overview_row(acc, server, &server_status, &self.config);
-                // selected.contains(&acc.ident),
+                let selected = selected.contains(&acc.ident);
 
-                // let ident = acc.ident;
-                // let cb = checkbox("", selected)
-                //     .on_toggle(move |nv| Message::SetOverviewSelected {
-                //         ident: vec![ident],
-                //         val: nv,
-                //     })
-                //     .size(13.0);
+                let ident = acc.ident;
 
-                // let row = row!(cb, b).align_items(Alignment::Center);
+                let cb = checkbox("", selected)
+                    .on_toggle(move |nv| Message::SetOverviewSelected {
+                        ident: vec![ident],
+                        val: nv,
+                    })
+                    .size(13.0);
 
-                accounts = accounts.push(info_row);
+                let full_row =
+                    row!(cb, info_row).align_items(Alignment::Center);
+
+                accounts = accounts.push(full_row);
             }
         }
 
-        if self.servers.len() > 0 {
-            let add_button = button(
-                text("+")
-                    .width(Length::Fill)
-                    .horizontal_alignment(iced::alignment::Horizontal::Center),
-            )
-            .on_press(Message::ViewLogin)
-            .style(theme::Button::Positive);
-            accounts = accounts.push(add_button);
-        }
-
         column!(top_bar, widget::scrollable(accounts))
-            .spacing(50)
+            .spacing(5)
             .height(Length::Fill)
             .width(Length::Fill)
             .align_items(Alignment::Center)
@@ -344,8 +350,9 @@ fn overview_row<'a>(
         AccountStatus::LoggingInAgain => status_text("Logging in"),
     };
 
-    let server_code =
-        center(text(get_server_code(&server.ident.url)).width(SERVER_CODE_WIDTH));
+    let server_code = center(
+        text(get_server_code(&server.ident.url)).width(SERVER_CODE_WIDTH),
+    );
 
     let acc_name = text(titlecase::titlecase(acc.name.as_str()).to_string())
         .width(ACC_NAME_WIDTH);
@@ -405,11 +412,14 @@ fn overview_row<'a>(
         abs,
         crawling_status
     )
-    .spacing(10.0);
+    .spacing(10.0)
+    .align_items(Alignment::Center);
 
     button(info_row)
         .on_press(Message::ShowPlayer { ident: acc.ident })
         .width(Length::Fill)
+        .height(Length::Shrink)
+        .padding(4.0)
         .style(theme::Button::Secondary)
         .into()
 }

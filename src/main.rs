@@ -109,7 +109,7 @@ fn main() -> iced::Result {
         width: 700.0,
         height: 700.0,
     });
-    settings.default_text_size = 14.0f32.into();
+    settings.default_text_size = 13.0f32.into();
     settings.window.visible = !is_headless;
 
     let raw_img = include_bytes!("../assets/icon.ico");

@@ -1,3 +1,5 @@
+use std::fmt::Write;
+
 use ahash::HashSet;
 use chrono::Local;
 use iced::{
@@ -135,7 +137,11 @@ pub fn view_scrapbook<'a>(
 
         for (time, target, won) in si.attack_log.iter().rev() {
             let time = text(format!("{}", time.time().format("%H:%M")));
-            let target = text(&target.info.name);
+            let mut info = target.info.name.to_string();
+            if *won {
+                _ = info.write_fmt(format_args!(" (+{})", target.missing));
+            }
+            let target = text(&info);
             let row = button(row!(target, horizontal_space(), time)).style(
                 match won {
                     true => theme::Button::Positive,
