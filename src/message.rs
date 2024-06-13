@@ -98,6 +98,7 @@ pub enum Message {
     SSORetry,
     SSOAuthError(String),
     SetMaxThreads(usize),
+    SetStartThreads(usize),
     SetBlacklistThr(usize),
     SetAutoFetch(bool),
     SetAutoPoll(bool),
@@ -601,9 +602,13 @@ impl Helper {
                     return Command::none();
                 };
 
+                let mut commands = vec![];
                 match &mut server.crawling {
                     CrawlingStatus::Waiting | CrawlingStatus::Restoring => {
                         server.crawling = status.into_status();
+                        commands.push(server.set_threads(
+                            self.config.start_threads, &self.config.base_name,
+                        ));
                     }
                     CrawlingStatus::Crawling {
                         que_id,
@@ -639,7 +644,6 @@ impl Helper {
                     return Command::none();
                 };
 
-                let mut commands = vec![];
                 let todo: Vec<_> =
                     server.accounts.values().map(|a| a.ident).collect();
                 for acc in todo {
@@ -1151,6 +1155,15 @@ impl Helper {
             }
             Message::SetMaxThreads(nv) => {
                 self.config.max_threads = nv.clamp(0, 50);
+                self.config.start_threads = self
+                    .config
+                    .start_threads
+                    .clamp(0, 50.min(self.config.max_threads));
+                _ = self.config.write();
+            }
+            Message::SetStartThreads(nv) => {
+                self.config.start_threads =
+                    nv.clamp(0, 50.min(self.config.max_threads));
                 _ = self.config.write();
             }
             Message::SSOSuccess {

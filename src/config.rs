@@ -15,6 +15,8 @@ pub struct Config {
     pub auto_poll: bool,
     #[serde(default = "default_threads")]
     pub max_threads: usize,
+    #[serde(default = "default_start_threads")]
+    pub start_threads: usize,
     #[serde(default)]
     pub show_crawling_restrict: bool,
     #[serde(default = "default_class_icons")]
@@ -30,6 +32,10 @@ fn default_threads() -> usize {
     10
 }
 
+fn default_start_threads() -> usize {
+    1
+}
+
 fn default_locale() -> CustomFormat {
     let mut cfb = CustomFormat::builder();
     cfb = cfb.separator(",");
@@ -37,7 +43,7 @@ fn default_locale() -> CustomFormat {
 }
 
 fn default_blacklist_threshhold() -> usize {
-    3
+    2
 }
 
 fn default_class_icons() -> bool {
@@ -62,12 +68,13 @@ impl Default for Config {
             theme: AvailableTheme::Dark,
             base_name,
             auto_fetch_newest: true,
-            max_threads: 10,
+            max_threads: default_threads(),
             auto_poll: false,
             show_crawling_restrict: false,
             show_class_icons: true,
-            blacklist_threshold: 1,
+            blacklist_threshold: default_blacklist_threshhold(),
             num_format: default_locale(),
+            start_threads: default_start_threads(),
         }
     }
 }

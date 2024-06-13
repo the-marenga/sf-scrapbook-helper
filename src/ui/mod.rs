@@ -192,6 +192,17 @@ impl Helper {
             .width(Length::Fill)
             .align_items(Alignment::Center);
 
+        let start_threads = number_input(
+            self.config.start_threads,
+            50.min(self.config.max_threads),
+            Message::SetStartThreads,
+        );
+
+        let start_threads =
+            row!("Starting threads:", horizontal_space(), start_threads)
+                .width(Length::Fill)
+                .align_items(Alignment::Center);
+
         let blacklist_threshold = number_input(
             self.config.blacklist_threshold,
             10,
@@ -207,7 +218,7 @@ impl Helper {
         .align_items(Alignment::Center);
 
         let settings_column = column!(
-            theme_row, auto_fetch_hof, auto_poll, max_threads,
+            theme_row, auto_fetch_hof, auto_poll, max_threads, start_threads,
             blacklist_threshold, crawling_restrict, show_class_icons
         )
         .width(Length::Fixed(300.0))
