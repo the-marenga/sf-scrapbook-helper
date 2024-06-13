@@ -269,7 +269,7 @@ impl Helper {
 
         let mut action_button = button(
             iced_aw::core::icons::bootstrap::icon_to_text(
-                iced_aw::Bootstrap::CaretDown,
+                iced_aw::Bootstrap::ThreeDotsVertical,
             )
             .size(18.0),
         )
@@ -278,14 +278,15 @@ impl Helper {
         if is_acting {
             action_button = action_button.on_press(Message::SetAction(None))
         } else if !selected.is_empty() {
-            action_button = action_button.on_press(Message::SetAction(this_action))
+            action_button =
+                action_button.on_press(Message::SetAction(this_action))
         }
 
         let action_dd =
             DropDown::new(action_button, self.overview_actions(), is_acting)
                 .width(Length::Fill)
                 .on_dismiss(Message::SetAction(None))
-                .alignment(iced_aw::drop_down::Alignment::Bottom);
+                .alignment(iced_aw::drop_down::Alignment::BottomStart);
 
         let full_row =
             row!(cb, info_row, action_dd).align_items(Alignment::Center);
@@ -334,7 +335,7 @@ impl Helper {
 
                 let action_button = button(
                     iced_aw::core::icons::bootstrap::icon_to_text(
-                        iced_aw::Bootstrap::CaretDown,
+                        iced_aw::Bootstrap::ThreeDotsVertical,
                     )
                     .size(18.0),
                 )
@@ -352,7 +353,7 @@ impl Helper {
                 )
                 .width(Length::Fill)
                 .on_dismiss(Message::SetAction(None))
-                .alignment(iced_aw::drop_down::Alignment::Bottom);
+                .alignment(iced_aw::drop_down::Alignment::BottomStart);
 
                 let full_row = row!(cb, info_row, action_dd)
                     .spacing(5.0)
@@ -370,17 +371,45 @@ impl Helper {
             .into()
     }
     fn overview_actions(&self) -> Element<Message> {
-        let mut all_actions = row!();
+        let mut all_actions = column!().spacing(4.0);
 
         fn action(button: Button<Message>) -> Button<Message> {
-            button.width(80.0)
+            button.width(100.0)
         }
 
-        all_actions = all_actions.push(action(button("Logout").on_press(
-            Message::MultiAction {
-                action: OverviewAction::Logout,
-            },
-        )));
+        all_actions = all_actions.push(action(
+            button(row!(
+                text("Auto Battle"),
+                horizontal_space(),
+                iced_aw::core::icons::bootstrap::icon_to_text(
+                    iced_aw::Bootstrap::Check,
+                )
+            ))
+            .on_press(Message::MultiAction {
+                action: OverviewAction::AutoBattle(true),
+            }),
+        ));
+
+        all_actions = all_actions.push(action(
+            button(row!(
+                text("Auto Battle"),
+                horizontal_space(),
+                iced_aw::core::icons::bootstrap::icon_to_text(
+                    iced_aw::Bootstrap::X,
+                )
+            ))
+            .on_press(Message::MultiAction {
+                action: OverviewAction::AutoBattle(false),
+            }),
+        ));
+
+        all_actions = all_actions.push(action(
+            button("Logout")
+                .on_press(Message::MultiAction {
+                    action: OverviewAction::Logout,
+                })
+                .style(theme::Button::Destructive),
+        ));
 
         all_actions.into()
     }
@@ -389,6 +418,7 @@ impl Helper {
 #[derive(Debug, Clone, Copy)]
 pub enum OverviewAction {
     Logout,
+    AutoBattle(bool),
 }
 
 const ACC_STATUS_WIDTH: f32 = 80.0;

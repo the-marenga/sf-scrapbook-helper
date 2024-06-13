@@ -11,14 +11,24 @@ chrono = "0.4"
 clap = { version = "4.5.4", features = ["derive"] }
 clap-num = "1.1.1"
 fastrand = "2.1"
-iced = { version = "0.12", default-features = false, features = ["tokio", "lazy", "image", "advanced"] }
-iced_aw = { version = "0.9", default-features = false, features = [
-    "number_input", "icons", "drop_down"
+iced = { version = "0.12", default-features = false, features = [
+    "tokio",
+    "lazy",
+    "image",
+    "advanced",
 ] }
-image = { version = "0.25", default-features = false, features = ["ico", "webp"] }
+iced_aw = { version = "0.9", default-features = false, features = [
+    "number_input",
+    "icons",
+    "drop_down",
+] }
+image = { version = "0.25", default-features = false, features = [
+    "ico",
+    "webp",
+] }
 indicatif = "0.17.8"
 log = "0.4.21"
-log4rs = { version = "1.3.0"}
+log4rs = { version = "1.3.0" }
 nohash-hasher = "0.2"
 num-format = "0.4.4"
 open = "5.1"
@@ -33,12 +43,17 @@ toml = "0.8"
 
 [profile.release]
 strip = true
-lto = "thin"
+lto = true
 opt-level = 3
+codegen-units = 1
+panic = "abort"
 
 [profile.dev]
 opt-level = 1
 
+# Async decompression and iced can become very slow on low opt-levels.
+# This adds a bit of compile overhead, but that time gets easily recouped
+# from the async decomp, etc speedups
 [profile.dev.package."*"]
 opt-level = 2
 

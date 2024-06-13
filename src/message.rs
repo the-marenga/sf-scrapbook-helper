@@ -668,12 +668,18 @@ impl Helper {
                         *threads = 0;
                     }
                 }
-                let View::Account { ident: current, .. } = self.current_view
-                else {
-                    return Command::none();
-                };
-                if ident == current {
-                    self.current_view = View::Login;
+
+                match &mut self.current_view {
+                    View::Account { ident: current, .. }
+                        if ident == *current =>
+                    {
+                        self.current_view = View::Login;
+                    }
+                    View::Overview { selected, action } => {
+                        _ = selected.remove(&ident);
+                        *action = None;
+                    }
+                    _ => {}
                 }
             }
             Message::CrawlerSetThreads {
@@ -952,7 +958,7 @@ impl Helper {
                 *crawling_session = Some(state);
             }
             Message::CrawlerRevived { server_id } => {
-                println!("Crawler revived");
+                info!("Crawler revived");
                 let Some(server) = self.servers.get_mut(&server_id) else {
                     return Command::none();
                 };
@@ -1864,15 +1870,20 @@ impl Helper {
 
                 *ac = None;
 
-                let messages = match action {
-                    OverviewAction::Logout => targets
-                        .into_iter()
-                        .map(|a| Message::RemoveAccount { ident: a }),
-                };
+                let messages = targets
+                    .into_iter()
+                    .map(|a| match action {
+                        OverviewAction::Logout => {
+                            Message::RemoveAccount { ident: a }
+                        }
+                        OverviewAction::AutoBattle(nv) => Message::AutoBattle {
+                            ident: a,
+                            state: nv,
+                        },
+                    })
+                    .map(|a| Command::perform(async {}, move |_| a));
 
-                return Command::batch(
-                    messages.map(|a| Command::perform(async {}, move |_| a)),
-                );
+                return Command::batch(messages);
             }
         }
         Command::none()
