@@ -1320,6 +1320,7 @@ impl Helper {
                 let CrawlingStatus::Crawling {
                     player_info,
                     equipment,
+                    que,
                     ..
                 } = &server.crawling
                 else {
@@ -1340,6 +1341,10 @@ impl Helper {
 
                 let mut target_list = Vec::new();
                 let mut loop_count = 0;
+                let lock = que.lock().unwrap();
+                let invalid =
+                    lock.invalid_accounts.iter().map(|a| a.as_str()).collect();
+
                 while let Some(AttackTarget { missing, info }) = best {
                     if loop_count > 300 || missing == 0 {
                         break;
@@ -1366,10 +1371,10 @@ impl Helper {
                     scrapbook.extend(info.equipment);
                     target_list.push(info.name);
                     let best_players =
-                        find_best(&per_player_counts, player_info, 1);
+                        find_best(&per_player_counts, player_info, 1, &invalid);
                     best = best_players.into_iter().next();
                 }
-
+                drop(lock);
                 return iced::clipboard::write(target_list.join("/"));
             }
             Message::PlayerRelogSuccess { ident, gs, session } => {

@@ -685,6 +685,8 @@ impl Helper {
         let mut has_old = false;
 
         let mut lock = que.lock().unwrap();
+        let invalid =
+            lock.invalid_accounts.iter().map(|a| a.as_str()).collect();
 
         let result_limit = 50;
 
@@ -693,8 +695,9 @@ impl Helper {
                 player_info, equipment, &si.scrapbook.items, si,
                 self.config.blacklist_threshold,
             );
-            let mut best_players =
-                find_best(&per_player_counts, player_info, result_limit);
+            let mut best_players = find_best(
+                &per_player_counts, player_info, result_limit, &invalid,
+            );
 
             best_players.sort_by(|a, b| {
                 if a.missing != b.missing {
@@ -907,6 +910,7 @@ fn find_best(
     per_player_counts: &IntMap<u32, usize>,
     player_info: &IntMap<u32, CharacterInfo>,
     max_out: usize,
+    invalid: &HashSet<&str>,
 ) -> Vec<AttackTarget> {
     // Prune the counts to make computation faster
     let mut max = 1;
@@ -922,12 +926,14 @@ fn find_best(
     let mut best_players = Vec::new();
     for (count, players) in counts.iter().enumerate().rev() {
         best_players.extend(
-            players.iter().flat_map(|a| player_info.get(a)).map(|a| {
-                AttackTarget {
+            players
+                .iter()
+                .flat_map(|a| player_info.get(a))
+                .filter(|a| !invalid.contains(&a.name.as_str()))
+                .map(|a| AttackTarget {
                     missing: count + 1,
                     info: a.to_owned(),
-                }
-            }),
+                }),
         );
         if best_players.len() >= max_out {
             break;
