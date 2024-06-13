@@ -6,7 +6,7 @@ use iced::{
     theme,
     widget::{
         self, button, checkbox, column, container, horizontal_space, pick_list,
-        row, text, Button,
+        progress_bar, row, text, Button,
     },
     Alignment, Element, Length,
 };
@@ -17,6 +17,7 @@ use options::view_options;
 use self::{scrapbook::view_scrapbook, underworld::view_underworld};
 use crate::{
     config::{AvailableTheme, Config},
+    crawler::CrawlingOrder,
     get_server_code,
     message::Message,
     player::{AccountInfo, AccountStatus},
@@ -120,8 +121,7 @@ impl Helper {
                 view_scrapbook(server, player, &self.config, &self.class_images)
             }
             AccountPage::Underworld => view_underworld(
-                server, player, self.config.max_threads, &self.config,
-                &self.class_images,
+                server, player, &self.config, &self.class_images,
             ),
             AccountPage::Options => view_options(player, server, &self.config),
         };
@@ -536,4 +536,122 @@ fn remaining_minutes(time: DateTime<Local>) -> String {
 
 fn center(t: text::Text) -> text::Text {
     t.horizontal_alignment(Horizontal::Center)
+}
+
+pub fn view_crawling<'a>(
+    server: &'a ServerInfo,
+    config: &'a Config,
+) -> Element<'a, Message> {
+    let mut left_col = column!().align_items(Alignment::Center).spacing(10);
+
+    let sid = server.ident.id;
+
+    match &server.crawling {
+        CrawlingStatus::Crawling {
+            threads,
+            que,
+            player_info,
+            ..
+        } => {
+            let lock = que.lock().unwrap();
+            let remaining = lock.count_remaining();
+            let crawled = player_info.len();
+            let total = remaining + crawled;
+
+            let progress_text = text(format!(
+                "Fetched {}/{}",
+                crawled.to_formatted_string(&config.num_format),
+                total.to_formatted_string(&config.num_format)
+            ));
+            left_col = left_col.push(progress_text);
+
+            let progress = progress_bar(0.0..=total as f32, crawled as f32)
+                .height(Length::Fixed(10.0));
+            left_col = left_col.push(progress);
+
+            let thread_num =
+                number_input(*threads, config.max_threads, move |nv| {
+                    Message::CrawlerSetThreads {
+                        server: sid,
+                        new_count: nv,
+                    }
+                });
+            let thread_num =
+                row!(text("Threads: "), horizontal_space(), thread_num)
+                    .align_items(Alignment::Center);
+            left_col = left_col.push(thread_num);
+            let order_picker = pick_list(
+                [
+                    CrawlingOrder::Random,
+                    CrawlingOrder::TopDown,
+                    CrawlingOrder::BottomUp,
+                ],
+                Some(lock.order),
+                |nv| Message::OrderChange {
+                    server: server.ident.id,
+                    new: nv,
+                },
+            );
+            left_col = left_col.push(
+                row!(
+                    text("Crawling Order:").width(Length::FillPortion(1)),
+                    order_picker.width(Length::FillPortion(1))
+                )
+                .align_items(Alignment::Center),
+            );
+
+            if config.show_crawling_restrict
+                || !lock.lvl_skipped_accounts.is_empty()
+            {
+                let old_max = lock.max_level;
+                let old_min = lock.min_level;
+
+                let set_min_lvl =
+                    number_input(lock.min_level, 9999u32, move |nv| {
+                        Message::CrawlerSetMinMax {
+                            server: sid,
+                            min: nv,
+                            max: old_max,
+                        }
+                    });
+                let thread_num =
+                    row!(text("Min Lvl: "), horizontal_space(), set_min_lvl)
+                        .align_items(Alignment::Center);
+                left_col = left_col.push(thread_num);
+
+                let set_min_lvl =
+                    number_input(lock.max_level, 9999u32, move |nv| {
+                        Message::CrawlerSetMinMax {
+                            server: sid,
+                            min: old_min,
+                            max: nv,
+                        }
+                    });
+                let thread_num =
+                    row!(text("Max Lvl: "), horizontal_space(), set_min_lvl)
+                        .align_items(Alignment::Center);
+                left_col = left_col.push(thread_num);
+            }
+
+            let clear = button("Clear HoF").on_press(Message::ClearHof(sid));
+            let save = button("Save HoF").on_press(Message::SaveHoF(sid));
+            left_col = left_col.push(
+                column!(row!(clear, save).spacing(10))
+                    .align_items(Alignment::Center),
+            );
+
+            drop(lock);
+        }
+        CrawlingStatus::Waiting => {
+            left_col = left_col.push(text("Waiting for Player..."));
+        }
+        CrawlingStatus::Restoring => {
+            left_col = left_col.push(text("Loading Server Data..."));
+        }
+        CrawlingStatus::CrawlingFailed(_) => {
+            left_col = left_col.push(text("Crawling Failed"));
+        }
+    }
+
+    left_col.into()
 }
