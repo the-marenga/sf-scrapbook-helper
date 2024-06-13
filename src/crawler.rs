@@ -155,8 +155,9 @@ impl Crawler {
                         let mut lock = self.que.lock().unwrap();
                         if lock.que_id == *que_id {
                             lock.invalid_accounts.retain(|a| a != name);
+                            lock.in_flight_accounts.remove(name);
+                            lock.invalid_accounts.push(name.to_string());
                         }
-                        lock.invalid_accounts.push(name.to_string());
                         return Message::CrawlerNoPlayerResult;
                     }
                 };
