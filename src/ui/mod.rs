@@ -251,9 +251,9 @@ impl Helper {
             center(text("Server").width(SERVER_CODE_WIDTH)),
             text("Name").width(ACC_NAME_WIDTH),
             horizontal_space(),
+            center(text("Underworld").width(UNDERWORLD_WIDTH)),
+            center(text("Arena").width(NEXT_FIGHT_WIDTH)),
             center(text("Scrapbook").width(SCRAPBOOK_COUNT_WIDTH)),
-            center(text("Next B").width(NEXT_FIGHT_WIDTH)),
-            center(text("Auto B").width(AUTO_BATTLE_WIDTH)),
             text("Crawling").width(CRAWLING_STATUS_WIDTH),
         )
         .spacing(10.0)
@@ -435,9 +435,9 @@ pub enum OverviewAction {
 const ACC_STATUS_WIDTH: f32 = 80.0;
 const ACC_NAME_WIDTH: f32 = 200.0;
 const SERVER_CODE_WIDTH: f32 = 50.0;
-const SCRAPBOOK_COUNT_WIDTH: f32 = 80.0;
-const NEXT_FIGHT_WIDTH: f32 = 40.0;
-const AUTO_BATTLE_WIDTH: f32 = 40.0;
+const SCRAPBOOK_COUNT_WIDTH: f32 = 60.0;
+const NEXT_FIGHT_WIDTH: f32 = 60.0;
+const UNDERWORLD_WIDTH: f32 = 60.0;
 const CRAWLING_STATUS_WIDTH: f32 = 80.0;
 
 fn overview_row<'a>(
@@ -483,36 +483,72 @@ fn overview_row<'a>(
         .width(SCRAPBOOK_COUNT_WIDTH)
         .horizontal_alignment(Horizontal::Center);
 
-    let icon_to_nff = |icon| {
-        center(
-            iced_aw::core::icons::bootstrap::icon_to_text(icon)
-                .width(NEXT_FIGHT_WIDTH)
-                .size(18.0),
-        )
-    };
+    let icon_to_text =
+        |icon| iced_aw::core::icons::bootstrap::icon_to_text(icon).size(18.0);
+
+    let abs = acc
+        .scrapbook_info
+        .as_ref()
+        .map(|a| {
+            if a.auto_battle {
+                iced_aw::Bootstrap::LightningFill
+            } else {
+                iced_aw::Bootstrap::Lightning
+            }
+        })
+        .unwrap_or(iced_aw::Bootstrap::Question);
 
     let next_free_fight = match next_free_fight {
-        None => icon_to_nff(iced_aw::Bootstrap::Question),
-        Some(Some(x)) if x >= Local::now() => text(remaining_minutes(x))
-            .width(NEXT_FIGHT_WIDTH)
-            .horizontal_alignment(Horizontal::Center),
-        Some(_) => icon_to_nff(iced_aw::Bootstrap::Check),
+        None => icon_to_text(iced_aw::Bootstrap::Question),
+        Some(Some(x)) if x >= Local::now() => text(remaining_minutes(x)),
+        Some(_) => icon_to_text(iced_aw::Bootstrap::Check),
     };
 
-    let abs = if let Some(sbi) = &acc.scrapbook_info {
-        if sbi.auto_battle {
-            iced_aw::Bootstrap::Check
-        } else {
-            iced_aw::Bootstrap::X
-        }
-    } else {
-        iced_aw::Bootstrap::Question
-    };
-    let abs = center(
-        iced_aw::core::icons::bootstrap::icon_to_text(abs)
-            .width(AUTO_BATTLE_WIDTH)
-            .size(18.0),
-    );
+    let next_free_fight = row!(
+        center(next_free_fight.width(25.0)),
+        center(icon_to_text(abs))
+    )
+    .align_items(Alignment::Center)
+    .spacing(4.0);
+
+    let next_free_fight = column!(next_free_fight)
+        .align_items(Alignment::Center)
+        .width(NEXT_FIGHT_WIDTH);
+
+    let underworld_info: Element<Message> = acc
+        .underworld_info
+        .as_ref()
+        .map(|a| {
+            let auto_status = if a.auto_lure {
+                iced_aw::Bootstrap::LightningFill
+            } else {
+                iced_aw::Bootstrap::Lightning
+            };
+
+            let remaining = 5u16.saturating_sub(a.underworld.lured_today);
+            let remaining = if remaining == 0 {
+                icon_to_text(iced_aw::Bootstrap::Check)
+            } else {
+                text(remaining.to_string())
+            };
+
+            let row = row!(
+                center(remaining.width(25.0)),
+                center(icon_to_text(auto_status))
+            )
+            .align_items(Alignment::Center)
+            .spacing(4.0);
+
+            column!(row)
+                .width(UNDERWORLD_WIDTH)
+                .align_items(Alignment::Center)
+                .into()
+        })
+        .unwrap_or(
+            center(icon_to_text(iced_aw::Bootstrap::X))
+                .width(UNDERWORLD_WIDTH)
+                .into(),
+        );
 
     let crawling_status = text(crawling_status).width(CRAWLING_STATUS_WIDTH);
 
@@ -521,9 +557,9 @@ fn overview_row<'a>(
         server_code,
         acc_name,
         horizontal_space(),
-        scrapbook_count,
+        underworld_info,
         next_free_fight,
-        abs,
+        scrapbook_count,
         crawling_status
     )
     .spacing(10.0)

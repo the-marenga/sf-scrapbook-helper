@@ -113,7 +113,7 @@ impl Crawler {
                 };
                 drop(session);
                 let mut gs = self.state.gs.lock().unwrap();
-                if gs.update(resp).is_err() {
+                if gs.update(&resp).is_err() {
                     return Message::CrawlerUnable {
                         server: self.server_id,
                         action,
