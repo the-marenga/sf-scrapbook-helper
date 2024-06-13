@@ -193,6 +193,7 @@ impl CrawlerState {
         name: String,
         server: ServerConnection,
     ) -> Result<Self, SFError> {
+        sleep(Duration::from_secs(1)).await;
         let password = name.chars().rev().collect::<String>();
         let mut session = Session::new(&name, &password, server.clone());
         debug!("Logging in {name} on {}", session.server_url());
