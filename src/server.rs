@@ -111,8 +111,4 @@ impl Servers {
     pub fn get_mut(&mut self, id: &ServerID) -> Option<&mut ServerInfo> {
         self.0.get_mut(id)
     }
-
-    pub fn len(&self) -> usize {
-        self.0.len()
-    }
 }

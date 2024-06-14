@@ -1,6 +1,7 @@
-use std::{sync::Arc, time::Duration};
+use std::{fmt::Write, sync::Arc, time::Duration};
 
 use chrono::Local;
+use config::{CharacterConfig, SFAccCharacter, SFCharIdent};
 use iced::Command;
 use log::{error, trace, warn};
 use sf_api::{
@@ -9,11 +10,12 @@ use sf_api::{
     sso::SSOProvider,
 };
 use tokio::time::sleep;
+use ui::OverviewAction;
 
 use self::{
     backup::{get_newest_backup, restore_backup, RestoreData},
     login::{SSOIdent, SSOLogin, SSOLoginStatus},
-    ui::{underworld::LureTarget, BestSort},
+    ui::underworld::LureTarget,
 };
 use crate::{
     crawler::CrawlerState,
@@ -23,6 +25,9 @@ use crate::{
 
 #[derive(Debug, Clone)]
 pub enum Message {
+    MultiAction {
+        action: OverviewAction,
+    },
     FontLoaded(Result<(), iced::font::Error>),
     CrawlAllRes {
         servers: Option<Vec<String>>,
@@ -31,16 +36,11 @@ pub enum Message {
     NextCLICrawling,
     AdvancedLevelRestrict(bool),
     ShowClasses(bool),
-    ChangeSort {
-        ident: AccountIdent,
-        new: BestSort,
-    },
     CrawlerSetMinMax {
         server: ServerID,
         min: u32,
         max: u32,
     },
-    ChangeDefaultSort(BestSort),
     UpdateResult(bool),
     PlayerSetMaxUndergroundLvl {
         ident: AccountIdent,
@@ -51,6 +51,10 @@ pub enum Message {
     },
     PlayerPolled {
         ident: AccountIdent,
+    },
+    SetOverviewSelected {
+        ident: Vec<AccountIdent>,
+        val: bool,
     },
     SSOLoginFailure {
         name: String,
@@ -94,6 +98,8 @@ pub enum Message {
     SSORetry,
     SSOAuthError(String),
     SetMaxThreads(usize),
+    SetStartThreads(usize),
+    SetBlacklistThr(usize),
     SetAutoFetch(bool),
     SetAutoPoll(bool),
     ViewSubPage {
@@ -103,11 +109,15 @@ pub enum Message {
     SSOImport {
         pos: usize,
     },
+    SSOImportAuto {
+        ident: SFCharIdent,
+    },
     SSOLoginSuccess {
         name: String,
         pass: PWHash,
         chars: Vec<Session>,
         remember: bool,
+        auto_login: bool,
     },
     ViewSettings,
     ChangeTheme(AvailableTheme),
@@ -120,6 +130,10 @@ pub enum Message {
         state: Arc<CrawlerState>,
     },
     AutoBattle {
+        ident: AccountIdent,
+        state: bool,
+    },
+    AutoLure {
         ident: AccountIdent,
         state: bool,
     },
@@ -147,14 +161,9 @@ pub enum Message {
         server: ServerID,
         new: CrawlingOrder,
     },
-    LoginRegular {
-        name: String,
-        pwhash: PWHash,
-        server: String,
-    },
-    LoginSF {
-        name: String,
-        pwhash: PWHash,
+    Login {
+        account: AccountConfig,
+        auto_login: bool,
     },
     RememberMe(bool),
     ClearHof(ServerID),
@@ -205,16 +214,41 @@ pub enum Message {
         server: ServerID,
         status: Box<RestoreData>,
     },
+    ConfigSetAutoLogin {
+        name: String,
+        server: ServerID,
+        nv: bool,
+    },
+    ConfigSetAutoBattle {
+        name: String,
+        server: ServerID,
+        nv: bool,
+    },
+    ConfigSetAutoLure {
+        name: String,
+        server: ServerID,
+        nv: bool,
+    },
+    UIActive,
+    AutoLureIdle,
+    AutoLurePossible {
+        ident: AccountIdent,
+    },
+    CopyBestLures {
+        ident: AccountIdent,
+    },
+    SetAction(Option<ActionSelection>),
 }
 
 impl Helper {
     pub fn handle_msg(&mut self, message: Message) -> Command<Message> {
         match message {
+            Message::UIActive => {}
             Message::PageCrawled => {
                 // Gets handled in crawling
             }
             Message::CrawlerDied { server, error } => {
-                log::error!("Crawler died on {server:?} - {error}");
+                log::error!("Crawler died on {server} - {error}");
 
                 let Some(server) = self.servers.get_mut(&server) else {
                     return Command::none();
@@ -255,8 +289,7 @@ impl Helper {
                         pb.set_length(total as u64);
                         pb.set_position(crawled as u64);
                     };
-
-                    lock.in_flight_accounts.retain(|a| a != &character.name);
+                    lock.in_flight_accounts.remove(&character.name);
                     lock.todo_pages.is_empty() && lock.todo_accounts.is_empty()
                 };
 
@@ -334,8 +367,8 @@ impl Helper {
                     return Command::none();
                 };
                 warn!(
-                    "Crawler was unable to do: {action:?} on {}",
-                    server.ident.ident
+                    "Crawler was unable to complete: '{action}' on {}",
+                    server.ident.id
                 );
                 let CrawlingStatus::Crawling {
                     que_id,
@@ -360,7 +393,7 @@ impl Helper {
                     CrawlAction::Character(a, b) => {
                         if *b == *que_id {
                             lock.invalid_accounts.push(a.to_string());
-                            lock.in_flight_accounts.retain(|x| x != a);
+                            lock.in_flight_accounts.remove(a);
                         }
                     }
                 }
@@ -425,6 +458,7 @@ impl Helper {
                     self.login_state.name.clone(),
                     PWHash::new(&self.login_state.password),
                     self.login_state.remember_me,
+                    false,
                 )
             }
             Message::LoginPWInputChange(a) => self.login_state.password = a,
@@ -437,6 +471,7 @@ impl Helper {
                     self.login_state.server.to_string(),
                     pw_hash,
                     self.login_state.remember_me,
+                    Default::default(),
                 );
             }
             Message::LoginViewChanged(a) => {
@@ -448,10 +483,7 @@ impl Helper {
                 remember,
                 ident,
             } => {
-                info!(
-                    "Successfully logged in {ident:?} on {}",
-                    session.server_url()
-                );
+                info!("Successfully logged in {ident}",);
 
                 let Some(server) = self.servers.0.get_mut(&ident.server_id)
                 else {
@@ -462,13 +494,11 @@ impl Helper {
                     return Command::none();
                 };
 
-                player.scrapbook_info = ScrapbookInfo::new(&gs, &self.config);
-
                 if remember {
                     match &player.auth {
                         PlayerAuth::Normal(hash) => {
-                            self.config.accounts.retain(|a| match &a.creds {
-                                AccountCreds::Regular {
+                            self.config.accounts.retain(|a| match &a {
+                                AccountConfig::Regular {
                                     name,
                                     server: server_url,
                                     ..
@@ -478,7 +508,7 @@ impl Helper {
                                 }
                                 _ => true,
                             });
-                            self.config.accounts.push(CharacterConfig::new(
+                            self.config.accounts.push(AccountConfig::new(
                                 AccountCreds::Regular {
                                     name: player.name.clone(),
                                     pw_hash: hash.clone(),
@@ -494,8 +524,11 @@ impl Helper {
                 let total_players = gs.hall_of_fames.players_total;
                 let total_pages = (total_players as usize).div_ceil(PER_PAGE);
 
-                player.scrapbook_info = ScrapbookInfo::new(&gs, &self.config);
-                player.underworld_info = UnderworldInfo::new(&gs);
+                let char_conf =
+                    self.config.get_char_conf(&player.name, ident.server_id);
+
+                player.scrapbook_info = ScrapbookInfo::new(&gs, char_conf);
+                player.underworld_info = UnderworldInfo::new(&gs, char_conf);
 
                 *player.status.lock().unwrap() =
                     AccountStatus::Idle(session, gs);
@@ -528,7 +561,7 @@ impl Helper {
                 }
             }
             Message::LoggininFailure { error, ident } => {
-                error!("Error loggin in {ident:?}: {error}");
+                error!("Error loggin in {ident}: {error}");
                 let Some((_, player)) = self.servers.get_ident(&ident) else {
                     return Command::none();
                 };
@@ -569,9 +602,13 @@ impl Helper {
                     return Command::none();
                 };
 
+                let mut commands = vec![];
                 match &mut server.crawling {
                     CrawlingStatus::Waiting | CrawlingStatus::Restoring => {
                         server.crawling = status.into_status();
+                        commands.push(server.set_threads(
+                            self.config.start_threads, &self.config.base_name,
+                        ));
                     }
                     CrawlingStatus::Crawling {
                         que_id,
@@ -590,7 +627,7 @@ impl Helper {
                         que.invalid_pages = status.invalid_pages;
                         que.order = status.order;
                         que.in_flight_pages = vec![];
-                        que.in_flight_accounts = vec![];
+                        que.in_flight_accounts = Default::default();
                         *que_id = status.que_id;
                         *player_info = status.player_info;
                         *equipment = status.equipment;
@@ -607,7 +644,6 @@ impl Helper {
                     return Command::none();
                 };
 
-                let mut commands = vec![];
                 let todo: Vec<_> =
                     server.accounts.values().map(|a| a.ident).collect();
                 for acc in todo {
@@ -623,7 +659,7 @@ impl Helper {
                 if let Some(old) = server.accounts.remove(&ident.account) {
                     if matches!(old.auth, PlayerAuth::SSO) {
                         if let Ok(mut sl) = old.status.lock() {
-                            if let Some(session) = sl.take_session() {
+                            if let Some(session) = sl.take_session("Removing") {
                                 self.login_state.import_que.push(*session);
                             }
                         }
@@ -636,12 +672,18 @@ impl Helper {
                         *threads = 0;
                     }
                 }
-                let View::Account { ident: current, .. } = self.current_view
-                else {
-                    return Command::none();
-                };
-                if ident == current {
-                    self.current_view = View::Login;
+
+                match &mut self.current_view {
+                    View::Account { ident: current, .. }
+                        if ident == *current =>
+                    {
+                        self.current_view = View::Login;
+                    }
+                    View::Overview { selected, action } => {
+                        _ = selected.remove(&ident);
+                        *action = None;
+                    }
+                    _ => {}
                 }
             }
             Message::CrawlerSetThreads {
@@ -665,7 +707,7 @@ impl Helper {
                         | AccountStatus::LoggingIn
                         | AccountStatus::FatalError(_) => None,
                         AccountStatus::Idle(_, gs)
-                        | AccountStatus::Busy(gs) => {
+                        | AccountStatus::Busy(gs, _) => {
                             Some(gs.hall_of_fames.players_total)
                         }
                     }
@@ -685,13 +727,24 @@ impl Helper {
                 );
             }
             Message::RememberMe(val) => self.login_state.remember_me = val,
-            Message::LoginRegular {
-                name,
-                pwhash,
-                server,
-            } => {
-                return self.login_regular(name, server, pwhash, false);
-            }
+            Message::Login {
+                account,
+                auto_login,
+            } => match account {
+                AccountConfig::Regular {
+                    name,
+                    pw_hash,
+                    server,
+                    ..
+                } => {
+                    return self.login_regular(
+                        name, server, pw_hash, false, auto_login,
+                    );
+                }
+                AccountConfig::SF { name, pw_hash, .. } => {
+                    return self.login_sf_acc(name, pw_hash, false, auto_login);
+                }
+            },
             Message::OrderChange { server, new } => {
                 let Some(server) = self.servers.get_mut(&server) else {
                     return Command::none();
@@ -727,18 +780,20 @@ impl Helper {
                     return refetch;
                 }
 
-                let Some(mut session) = status.take_session() else {
+                let Some(mut session) = status.take_session("Fighting") else {
                     return refetch;
                 };
                 drop(status);
 
                 let Some(si) = &account.scrapbook_info else {
-                    return Command::none();
+                    account.status.lock().unwrap().put_session(session);
+                    return refetch;
                 };
 
-                let Some(target) = si.best.first().cloned() else {
-                    let mut status = account.status.lock().unwrap();
-                    status.put_session(session);
+                let Some(target) =
+                    si.best.iter().find(|a| !a.is_old()).cloned()
+                else {
+                    account.status.lock().unwrap().put_session(session);
                     return refetch;
                 };
 
@@ -786,7 +841,7 @@ impl Helper {
                 let mut lock = player.status.lock().unwrap();
                 *lock = AccountStatus::LoggingInAgain;
                 drop(lock);
-                warn!("Logging in {ident:?} again");
+                warn!("Logging in {ident} again");
                 return Command::perform(
                     async move {
                         let Ok(resp) = session.login().await else {
@@ -830,7 +885,7 @@ impl Helper {
                 let v = account.status.clone();
                 let mut lock = v.lock().unwrap();
 
-                let AccountStatus::Busy(s) = &mut *lock else {
+                let AccountStatus::Busy(s, _) = &mut *lock else {
                     return Command::none();
                 };
 
@@ -907,7 +962,7 @@ impl Helper {
                 *crawling_session = Some(state);
             }
             Message::CrawlerRevived { server_id } => {
-                println!("Crawler revived");
+                info!("Crawler revived");
                 let Some(server) = self.servers.get_mut(&server_id) else {
                     return Command::none();
                 };
@@ -948,7 +1003,10 @@ impl Helper {
                 que.todo_pages.append(&mut ok_pages);
             }
             Message::ViewOverview => {
-                self.current_view = View::Overview;
+                self.current_view = View::Overview {
+                    selected: Default::default(),
+                    action: Default::default(),
+                };
             }
             Message::ChangeTheme(theme) => {
                 self.config.theme = theme;
@@ -957,14 +1015,12 @@ impl Helper {
             Message::ViewSettings => {
                 self.current_view = View::Settings;
             }
-            Message::LoginSF { name, pwhash } => {
-                return self.login_sf_acc(name, pwhash, false);
-            }
             Message::SSOLoginSuccess {
                 name,
                 pass,
                 mut chars,
                 remember,
+                auto_login,
             } => {
                 let ident = SSOIdent::SF(name.clone());
 
@@ -977,24 +1033,105 @@ impl Helper {
                     // Already logged in
                     return Command::none();
                 };
-
                 if remember {
-                    self.config.accounts.retain(|a| match &a.creds {
-                        AccountCreds::Regular { .. } => true,
-                        AccountCreds::SF { name: uuu, .. } => &name != uuu,
+                    self.config.accounts.retain(|a| match &a {
+                        AccountConfig::Regular { .. } => true,
+                        AccountConfig::SF { name: uuu, .. } => {
+                            name.to_lowercase() != uuu.to_lowercase()
+                        }
                     });
 
-                    self.config.accounts.push(CharacterConfig {
-                        creds: AccountCreds::SF {
-                            name,
-                            pw_hash: pass,
-                        },
+                    self.config.accounts.push(AccountConfig::SF {
+                        name: name.clone(),
+                        pw_hash: pass,
+                        characters: chars
+                            .iter()
+                            .map(|a| SFAccCharacter {
+                                config: CharacterConfig::default(),
+                                ident: SFCharIdent {
+                                    name: a.username().to_string(),
+                                    server: a.server_url().as_str().to_string(),
+                                },
+                            })
+                            .collect(),
                     });
                     _ = self.config.write();
                 }
 
+                if let Some(existing) = self.config.get_sso_accounts_mut(&name)
+                {
+                    let mut new: HashSet<(ServerIdent, String)> =
+                        HashSet::new();
+                    for char in &chars {
+                        let name = char.username().trim().to_lowercase();
+                        new.insert((
+                            ServerIdent::new(char.server_url().as_str()),
+                            name,
+                        ));
+                    }
+
+                    let mut modified = false;
+
+                    existing.retain(|a| {
+                        let res = new.remove(&(
+                            ServerIdent::new(&a.ident.server),
+                            a.ident.name.trim().to_lowercase(),
+                        ));
+                        if !res {
+                            modified = true;
+                            info!("Removed a SSO char")
+                        }
+                        res
+                    });
+
+                    for (server, name) in new {
+                        modified = true;
+                        info!("Registered a a new SSO chars");
+                        existing.push(SFAccCharacter {
+                            config: CharacterConfig::default(),
+                            ident: SFCharIdent {
+                                name,
+                                server: server.url.to_string(),
+                            },
+                        })
+                    }
+
+                    if modified {
+                        _ = self.config.write();
+                    }
+                }
+
                 self.login_state.import_que.append(&mut chars);
+
                 res.status = SSOLoginStatus::Success;
+                if auto_login {
+                    for acc in &self.config.accounts {
+                        let AccountConfig::SF {
+                            name: s_name,
+                            characters,
+                            ..
+                        } = acc
+                        else {
+                            continue;
+                        };
+                        if s_name != &name {
+                            continue;
+                        }
+                        let mut commands = vec![];
+                        for SFAccCharacter { ident, config } in characters {
+                            if !config.login {
+                                continue;
+                            }
+                            let ident = ident.clone();
+                            commands
+                                .push(Command::perform(async {}, move |_| {
+                                    Message::SSOImportAuto { ident }
+                                }))
+                        }
+                        return Command::batch(commands);
+                    }
+                }
+
                 if self.current_view == View::Login
                     && self.login_state.login_typ == LoginType::SSOAccounts
                 {
@@ -1004,7 +1141,7 @@ impl Helper {
             Message::SSOImport { pos } => {
                 // TODO: Bounds check this?
                 let account = self.login_state.import_que.remove(pos);
-                return self.login(account, false, PlayerAuth::SSO);
+                return self.login(account, false, PlayerAuth::SSO, false);
             }
             Message::ViewSubPage { player, page } => {
                 self.current_view = View::Account {
@@ -1018,6 +1155,15 @@ impl Helper {
             }
             Message::SetMaxThreads(nv) => {
                 self.config.max_threads = nv.clamp(0, 50);
+                self.config.start_threads = self
+                    .config
+                    .start_threads
+                    .clamp(0, 50.min(self.config.max_threads));
+                _ = self.config.write();
+            }
+            Message::SetStartThreads(nv) => {
+                self.config.start_threads =
+                    nv.clamp(0, 50.min(self.config.max_threads));
                 _ = self.config.write();
             }
             Message::SSOSuccess {
@@ -1084,7 +1230,7 @@ impl Helper {
                     return Command::none();
                 }
 
-                let Some(mut session) = status.take_session() else {
+                let Some(mut session) = status.take_session("Fighting") else {
                     return Command::none();
                 };
                 drop(status);
@@ -1187,6 +1333,7 @@ impl Helper {
                 let CrawlingStatus::Crawling {
                     player_info,
                     equipment,
+                    que,
                     ..
                 } = &server.crawling
                 else {
@@ -1202,10 +1349,15 @@ impl Helper {
 
                 let mut per_player_counts = calc_per_player_count(
                     player_info, equipment, &scrapbook, si,
+                    self.config.blacklist_threshold,
                 );
 
                 let mut target_list = Vec::new();
                 let mut loop_count = 0;
+                let lock = que.lock().unwrap();
+                let invalid =
+                    lock.invalid_accounts.iter().map(|a| a.as_str()).collect();
+
                 while let Some(AttackTarget { missing, info }) = best {
                     if loop_count > 300 || missing == 0 {
                         break;
@@ -1232,10 +1384,10 @@ impl Helper {
                     scrapbook.extend(info.equipment);
                     target_list.push(info.name);
                     let best_players =
-                        find_best(&per_player_counts, player_info, 1);
+                        find_best(&per_player_counts, player_info, 1, &invalid);
                     best = best_players.into_iter().next();
                 }
-
+                drop(lock);
                 return iced::clipboard::write(target_list.join("/"));
             }
             Message::PlayerRelogSuccess { ident, gs, session } => {
@@ -1250,7 +1402,7 @@ impl Helper {
                 };
 
                 let mut lock = player.status.lock().unwrap();
-                *lock = AccountStatus::Busy(gs);
+                *lock = AccountStatus::Busy(gs, "Waiting".into());
                 drop(lock);
                 // For some reason the game does not like sending requests
                 // immediately
@@ -1290,7 +1442,7 @@ impl Helper {
                 };
 
                 let mut status = account.status.lock().unwrap();
-                let Some(mut session) = status.take_session() else {
+                let Some(mut session) = status.take_session("Luring") else {
                     return Command::none();
                 };
                 drop(status);
@@ -1340,7 +1492,7 @@ impl Helper {
                 let v = account.status.clone();
                 let mut lock = v.lock().unwrap();
 
-                let AccountStatus::Busy(s) = &mut *lock else {
+                let AccountStatus::Busy(s, _) = &mut *lock else {
                     return Command::none();
                 };
 
@@ -1371,7 +1523,7 @@ impl Helper {
                 lock.put_session(session);
             }
             Message::PlayerNotPolled { ident } => {
-                warn!("Unable to poll {ident:?}")
+                warn!("Unable to update {ident}")
             }
             Message::PlayerPolled { ident } => {
                 let Some(server) = self.servers.0.get_mut(&ident.server_id)
@@ -1384,7 +1536,9 @@ impl Helper {
                 };
                 let mut lock = account.status.lock().unwrap();
                 let gs = match &mut *lock {
-                    AccountStatus::Busy(gs) | AccountStatus::Idle(_, gs) => gs,
+                    AccountStatus::Busy(gs, _) | AccountStatus::Idle(_, gs) => {
+                        gs
+                    }
                     _ => {
                         return Command::none();
                     }
@@ -1419,24 +1573,6 @@ impl Helper {
             Message::SetAutoPoll(new_val) => {
                 self.config.auto_poll = new_val;
                 _ = self.config.write();
-            }
-            Message::ChangeDefaultSort(new) => {
-                self.config.default_best_sort = new;
-                _ = self.config.write();
-            }
-            Message::ChangeSort { ident, new } => {
-                let Some(server) = self.servers.get_mut(&ident.server_id)
-                else {
-                    return Command::none();
-                };
-                let Some(account) = server.accounts.get_mut(&ident.account)
-                else {
-                    return Command::none();
-                };
-
-                account.best_sort = new;
-
-                return self.update_best(ident, false);
             }
             Message::AdvancedLevelRestrict(val) => {
                 self.config.show_crawling_restrict = val;
@@ -1545,6 +1681,227 @@ impl Helper {
                 let mut lock = account.status.lock().unwrap();
                 lock.put_session(session);
                 drop(lock);
+            }
+            Message::SSOImportAuto { ident } => {
+                let i_name = ident.name.to_lowercase();
+                let i_server = ServerIdent::new(&ident.server);
+
+                let pos = self.login_state.import_que.iter().position(|char| {
+                    let server = ServerIdent::new(char.server_url().as_str());
+                    let name = char.username().to_lowercase();
+                    server == i_server && name == i_name
+                });
+                let Some(pos) = pos else {
+                    return Command::none();
+                };
+                let account = self.login_state.import_que.remove(pos);
+                return self.login(account, false, PlayerAuth::SSO, true);
+            }
+            Message::SetOverviewSelected { ident, val } => {
+                let View::Overview { selected, action } =
+                    &mut self.current_view
+                else {
+                    return Command::none();
+                };
+                *action = None;
+                if val {
+                    for v in ident {
+                        selected.insert(v);
+                    }
+                } else {
+                    for v in ident {
+                        selected.remove(&v);
+                    }
+                }
+            }
+            Message::ConfigSetAutoLogin { name, server, nv } => {
+                let Some(config) = self.config.get_char_conf_mut(&name, server)
+                else {
+                    return Command::none();
+                };
+                config.login = nv;
+                _ = self.config.write();
+            }
+            Message::ConfigSetAutoBattle { name, server, nv } => {
+                let Some(config) = self.config.get_char_conf_mut(&name, server)
+                else {
+                    return Command::none();
+                };
+                config.auto_battle = nv;
+                _ = self.config.write();
+            }
+            Message::SetBlacklistThr(nv) => {
+                self.config.blacklist_threshold = nv.max(1);
+                _ = self.config.write();
+            }
+            Message::AutoLureIdle => {}
+            Message::AutoLurePossible { ident } => {
+                let refetch = self.update_best(ident, true);
+
+                let Some(server) = self.servers.0.get_mut(&ident.server_id)
+                else {
+                    return Command::none();
+                };
+                let Some(account) = server.accounts.get_mut(&ident.account)
+                else {
+                    return Command::none();
+                };
+
+                let CrawlingStatus::Crawling { .. } = &server.crawling else {
+                    return Command::none();
+                };
+
+                let mut status = account.status.lock().unwrap();
+                let AccountStatus::Idle(_, gs) = &*status else {
+                    return refetch;
+                };
+
+                let Some(0..=4) = gs.underworld.as_ref().map(|a| a.lured_today)
+                else {
+                    return refetch;
+                };
+
+                let Some(mut session) = status.take_session("Luring") else {
+                    return refetch;
+                };
+                drop(status);
+
+                let Some(ui) = &account.underworld_info else {
+                    account.status.lock().unwrap().put_session(session);
+                    return refetch;
+                };
+
+                let Some(target) =
+                    ui.best.iter().find(|a| !a.is_old()).cloned()
+                else {
+                    account.status.lock().unwrap().put_session(session);
+                    return refetch;
+                };
+                info!("Auto Underworld attack {ident}");
+                let fight = Command::perform(
+                    async move {
+                        let cmd = sf_api::command::Command::UnderworldAttack {
+                            player_id: target.uid,
+                        };
+                        let resp = session.send_command(&cmd).await;
+                        (resp, session)
+                    },
+                    move |r| match r.0 {
+                        Ok(resp) => Message::PlayerLureResult {
+                            ident,
+                            session: r.1,
+                            against: LureTarget {
+                                uid: target.uid,
+                                name: target.name,
+                            },
+                            resp: Box::new(resp),
+                        },
+                        Err(_) => Message::PlayerCommandFailed {
+                            ident,
+                            session: r.1,
+                            attempt: 0,
+                        },
+                    },
+                );
+
+                return Command::batch([refetch, fight]);
+            }
+            Message::ConfigSetAutoLure { name, server, nv } => {
+                let Some(config) = self.config.get_char_conf_mut(&name, server)
+                else {
+                    return Command::none();
+                };
+                config.auto_lure = nv;
+                _ = self.config.write();
+            }
+            Message::AutoLure { ident, state } => {
+                let Some(server) = self.servers.0.get_mut(&ident.server_id)
+                else {
+                    return Command::none();
+                };
+                let Some(player) = server.accounts.get_mut(&ident.account)
+                else {
+                    return Command::none();
+                };
+
+                let Some(si) = &mut player.underworld_info else {
+                    return Command::none();
+                };
+
+                si.auto_lure = state;
+            }
+            Message::CopyBestLures { ident } => {
+                let Some(server) = self.servers.0.get_mut(&ident.server_id)
+                else {
+                    return Command::none();
+                };
+                let Some(player) = server.accounts.get_mut(&ident.account)
+                else {
+                    return Command::none();
+                };
+
+                let Some(si) = &mut player.underworld_info else {
+                    return Command::none();
+                };
+
+                let mut res = format!(
+                    "Best lure targets on {}. Max Lvl = {}\n",
+                    server.ident.url, si.max_level
+                );
+
+                for a in &si.best {
+                    if a.is_old() {
+                        continue;
+                    }
+                    _ = res.write_fmt(format_args!(
+                        "lvl: {:3}, items: {}, name: {}\n",
+                        a.level,
+                        a.equipment.len(),
+                        a.name,
+                    ));
+                }
+
+                return iced::clipboard::write(res);
+            }
+            Message::SetAction(a) => {
+                let View::Overview { action, .. } = &mut self.current_view
+                else {
+                    return Command::none();
+                };
+                *action = a;
+            }
+            Message::MultiAction { action } => {
+                let View::Overview {
+                    action: ac,
+                    selected,
+                } = &mut self.current_view
+                else {
+                    return Command::none();
+                };
+                let targets = match ac {
+                    Some(ActionSelection::Multi) => {
+                        selected.iter().copied().collect()
+                    }
+                    Some(ActionSelection::Character(c)) => vec![*c],
+                    None => return Command::none(),
+                };
+
+                *ac = None;
+
+                let messages = targets
+                    .into_iter()
+                    .map(|a| match action {
+                        OverviewAction::Logout => {
+                            Message::RemoveAccount { ident: a }
+                        }
+                        OverviewAction::AutoBattle(nv) => Message::AutoBattle {
+                            ident: a,
+                            state: nv,
+                        },
+                    })
+                    .map(|a| Command::perform(async {}, move |_| a));
+
+                return Command::batch(messages);
             }
         }
         Command::none()

@@ -1,23 +1,24 @@
-use ahash::HashSet;
+use std::fmt::Write;
+
 use chrono::Local;
 use iced::{
     alignment::Horizontal,
     theme,
     widget::{
-        button, checkbox, column, horizontal_space, pick_list, progress_bar,
-        row, scrollable, text, vertical_space, Image,
+        button, checkbox, column, horizontal_space, row, scrollable, text,
+        vertical_space, Image,
     },
     Alignment, Element, Length,
 };
 use iced_aw::number_input;
+use num_format::ToFormattedString;
 
-use super::BestSort;
+use super::{remaining_minutes, view_crawling};
 use crate::{
     config::Config,
-    crawler::CrawlingOrder,
     message::Message,
     player::{AccountInfo, AccountStatus},
-    server::{CrawlingStatus, ServerInfo},
+    server::ServerInfo,
     ClassImages,
 };
 
@@ -28,15 +29,16 @@ pub fn view_scrapbook<'a>(
     images: &'a ClassImages,
 ) -> Element<'a, Message> {
     let lock = player.status.lock().unwrap();
+
     let gs = match &*lock {
         AccountStatus::LoggingIn => return text("Logging in").size(20).into(),
         AccountStatus::Idle(_, gs) => gs,
-        AccountStatus::Busy(gs) => gs,
+        AccountStatus::Busy(gs, _) => gs,
         AccountStatus::FatalError(err) => {
             return text(format!("Error: {err}")).size(20).into()
         }
         AccountStatus::LoggingInAgain => {
-            return text("Logging in player again".to_string()).size(20).into()
+            return text("Logging in again".to_string()).size(20).into()
         }
     };
 
@@ -55,20 +57,26 @@ pub fn view_scrapbook<'a>(
 
     left_col = left_col.push(row!(
         text("Items Found:").width(Length::FillPortion(1)),
-        text(si.scrapbook.items.len())
-            .width(Length::FillPortion(1))
-            .horizontal_alignment(Horizontal::Right)
+        text(
+            si.scrapbook
+                .items
+                .len()
+                .to_formatted_string(&config.num_format)
+        )
+        .width(Length::FillPortion(1))
+        .horizontal_alignment(Horizontal::Right)
     ));
 
     left_col = left_col.push(row!(
         text("Total Attributes:").width(Length::FillPortion(1)),
         text(
-            gs.character.attribute_basis.as_array().iter().sum::<u32>()
+            (gs.character.attribute_basis.as_array().iter().sum::<u32>()
                 + gs.character
                     .attribute_additions
                     .as_array()
                     .iter()
-                    .sum::<u32>()
+                    .sum::<u32>())
+            .to_formatted_string(&config.num_format)
         )
         .width(Length::FillPortion(1))
         .horizontal_alignment(Horizontal::Right)
@@ -93,28 +101,12 @@ pub fn view_scrapbook<'a>(
         .align_items(Alignment::Center);
     left_col = left_col.push(max_lvl);
 
-    let sort_picker = pick_list(
-        [BestSort::Level, BestSort::Attributes],
-        Some(player.best_sort),
-        move |nv| Message::ChangeSort {
-            ident: aid,
-            new: nv,
-        },
-    );
-
-    let sort_best = row!(text("Sort Best: "), horizontal_space(), sort_picker)
-        .width(Length::Fill)
-        .align_items(Alignment::Center);
-
-    left_col = left_col.push(sort_best);
-
     match &gs.arena.next_free_fight {
         Some(x) if *x >= Local::now() => {
             let t = text("Next free fight:");
-            let secs = (*x - Local::now()).num_seconds();
             let r = row!(
                 t.width(Length::FillPortion(1)),
-                text(format!("{secs}s"))
+                text(remaining_minutes(*x))
                     .width(Length::FillPortion(1))
                     .horizontal_alignment(Horizontal::Right)
             );
@@ -143,7 +135,11 @@ pub fn view_scrapbook<'a>(
 
         for (time, target, won) in si.attack_log.iter().rev() {
             let time = text(format!("{}", time.time().format("%H:%M")));
-            let target = text(&target.info.name);
+            let mut info = target.info.name.to_string();
+            if *won {
+                _ = info.write_fmt(format_args!(" (+{})", target.missing));
+            }
+            let target = text(&info);
             let row = button(row!(target, horizontal_space(), time)).style(
                 match won {
                     true => theme::Button::Positive,
@@ -156,113 +152,8 @@ pub fn view_scrapbook<'a>(
         left_col = left_col.push(scrollable(log).height(Length::Fixed(200.0)));
     }
     left_col = left_col.push(vertical_space());
-    let sid = server.ident.id;
-    let mut banned = HashSet::default();
 
-    match &server.crawling {
-        CrawlingStatus::Crawling {
-            threads,
-            que,
-            player_info,
-            ..
-        } => {
-            let lock = que.lock().unwrap();
-            let remaining = lock.count_remaining();
-            let crawled = player_info.len();
-            let total = remaining + crawled;
-
-            banned = lock.invalid_accounts.iter().cloned().collect();
-
-            let progress_text = text(format!("Fetched {}/{}", crawled, total));
-            left_col = left_col.push(progress_text);
-
-            let progress = progress_bar(0.0..=total as f32, crawled as f32)
-                .height(Length::Fixed(10.0));
-            left_col = left_col.push(progress);
-
-            let thread_num =
-                number_input(*threads, config.max_threads, move |nv| {
-                    Message::CrawlerSetThreads {
-                        server: sid,
-                        new_count: nv,
-                    }
-                });
-            let thread_num =
-                row!(text("Threads: "), horizontal_space(), thread_num)
-                    .align_items(Alignment::Center);
-            left_col = left_col.push(thread_num);
-            let order_picker = pick_list(
-                [
-                    CrawlingOrder::Random,
-                    CrawlingOrder::TopDown,
-                    CrawlingOrder::BottomUp,
-                ],
-                Some(lock.order),
-                |nv| Message::OrderChange {
-                    server: server.ident.id,
-                    new: nv,
-                },
-            );
-            left_col = left_col.push(
-                row!(
-                    text("Crawling Order:").width(Length::FillPortion(1)),
-                    order_picker.width(Length::FillPortion(1))
-                )
-                .align_items(Alignment::Center),
-            );
-
-            if config.show_crawling_restrict
-                || !lock.lvl_skipped_accounts.is_empty()
-            {
-                let old_max = lock.max_level;
-                let old_min = lock.min_level;
-
-                let set_min_lvl =
-                    number_input(lock.min_level, 9999u32, move |nv| {
-                        Message::CrawlerSetMinMax {
-                            server: sid,
-                            min: nv,
-                            max: old_max,
-                        }
-                    });
-                let thread_num =
-                    row!(text("Min Lvl: "), horizontal_space(), set_min_lvl)
-                        .align_items(Alignment::Center);
-                left_col = left_col.push(thread_num);
-
-                let set_min_lvl =
-                    number_input(lock.max_level, 9999u32, move |nv| {
-                        Message::CrawlerSetMinMax {
-                            server: sid,
-                            min: old_min,
-                            max: nv,
-                        }
-                    });
-                let thread_num =
-                    row!(text("Max Lvl: "), horizontal_space(), set_min_lvl)
-                        .align_items(Alignment::Center);
-                left_col = left_col.push(thread_num);
-            }
-
-            let clear = button("Clear HoF").on_press(Message::ClearHof(sid));
-            let save = button("Save HoF").on_press(Message::SaveHoF(sid));
-            left_col = left_col.push(
-                column!(row!(clear, save).spacing(10))
-                    .align_items(Alignment::Center),
-            );
-
-            drop(lock);
-        }
-        CrawlingStatus::Waiting => {
-            left_col = left_col.push(text("Waiting for Player..."));
-        }
-        CrawlingStatus::Restoring => {
-            left_col = left_col.push(text("Loading Server Data..."));
-        }
-        CrawlingStatus::CrawlingFailed(_) => {
-            left_col = left_col.push(text("Crawling Failed"));
-        }
-    }
+    left_col = left_col.push(view_crawling(server, config));
 
     let mut name_bar = column!();
     name_bar = name_bar.push(row!(
@@ -286,9 +177,6 @@ pub fn view_scrapbook<'a>(
 
     let mut target_list = column!().spacing(10);
     for v in &si.best {
-        if banned.contains(&v.info.name) {
-            continue;
-        }
         let mut target_ident = row!()
             .align_items(Alignment::Start)
             .spacing(5)
@@ -324,7 +212,7 @@ pub fn view_scrapbook<'a>(
             text(
                 v.info
                     .stats
-                    .map(|a| a.to_string())
+                    .map(|a| a.to_formatted_string(&config.num_format))
                     .unwrap_or("???".to_string())
             )
             .width(Length::FillPortion(5))
@@ -333,13 +221,11 @@ pub fn view_scrapbook<'a>(
         ));
     }
     let target_list = scrollable(target_list);
-    let right_col = column!(name_bar, target_list)
-        .width(Length::Fill)
-        .spacing(10);
+    let right_col = column!(name_bar, target_list).spacing(10);
 
     row!(
-        left_col.width(Length::FillPortion(1)),
-        right_col.width(Length::FillPortion(3))
+        left_col.width(Length::Fixed(200.0)),
+        right_col.width(Length::Fill)
     )
     .padding(15)
     .height(Length::Fill)

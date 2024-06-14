@@ -36,7 +36,7 @@ impl Crawler {
                             lock.invalid_accounts.push(entry);
                             continue;
                         }
-                        lock.in_flight_accounts.push(entry.clone());
+                        lock.in_flight_accounts.insert(entry.clone());
                         break CrawlAction::Character(entry, lock.que_id);
                     }
                     None => match lock.todo_pages.pop() {
@@ -113,7 +113,7 @@ impl Crawler {
                 };
                 drop(session);
                 let mut gs = self.state.gs.lock().unwrap();
-                if gs.update(resp).is_err() {
+                if gs.update(&resp).is_err() {
                     return Message::CrawlerUnable {
                         server: self.server_id,
                         action,
@@ -155,8 +155,9 @@ impl Crawler {
                         let mut lock = self.que.lock().unwrap();
                         if lock.que_id == *que_id {
                             lock.invalid_accounts.retain(|a| a != name);
+                            lock.in_flight_accounts.remove(name);
+                            lock.invalid_accounts.push(name.to_string());
                         }
-                        lock.invalid_accounts.push(name.to_string());
                         return Message::CrawlerNoPlayerResult;
                     }
                 };
@@ -192,6 +193,7 @@ impl CrawlerState {
         name: String,
         server: ServerConnection,
     ) -> Result<Self, SFError> {
+        sleep(Duration::from_secs(1)).await;
         let password = name.chars().rev().collect::<String>();
         let mut session = Session::new(&name, &password, server.clone());
         debug!("Logging in {name} on {}", session.server_url());
@@ -265,6 +267,21 @@ pub enum CrawlAction {
     Character(String, QueID),
 }
 
+impl std::fmt::Display for CrawlAction {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            CrawlAction::Wait => f.write_str("Waiting"),
+            CrawlAction::InitTodo => f.write_str("Inititialization"),
+            CrawlAction::Page(page, _) => {
+                f.write_fmt(format_args!("Fetch page {page}"))
+            }
+            CrawlAction::Character(name, _) => {
+                f.write_fmt(format_args!("Fetch char {name}"))
+            }
+        }
+    }
+}
+
 #[derive(
     Debug, Serialize, Deserialize, Default, Clone, Copy, PartialEq, Eq,
 )]
@@ -307,7 +324,7 @@ pub struct WorkerQue {
     pub invalid_pages: Vec<usize>,
     pub invalid_accounts: Vec<String>,
     pub in_flight_pages: Vec<usize>,
-    pub in_flight_accounts: Vec<String>,
+    pub in_flight_accounts: HashSet<String>,
     pub order: CrawlingOrder,
     pub lvl_skipped_accounts: BTreeMap<u32, Vec<String>>,
     pub min_level: u32,

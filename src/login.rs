@@ -1,5 +1,5 @@
 use std::{
-    sync::{Arc, Mutex},
+    sync::{atomic::AtomicU64, Arc, Mutex},
     time::Duration,
 };
 
@@ -20,11 +20,9 @@ use sf_api::{
 use tokio::time::sleep;
 
 use crate::{
-    config::{AccountCreds, CharacterConfig},
-    get_server_code,
-    message::Message,
-    top_bar, AccountID, AccountIdent, AccountInfo, AccountPage, Helper,
-    ServerIdent, View,
+    config::AccountConfig, get_server_code, message::Message, top_bar,
+    AccountID, AccountIdent, AccountInfo, AccountPage, Helper, ServerIdent,
+    View,
 };
 
 pub struct LoginState {
@@ -68,7 +66,7 @@ pub enum SSOLoginStatus {
 impl LoginState {
     pub fn view(
         &self,
-        accounts: &[CharacterConfig],
+        accounts: &[AccountConfig],
         has_active: bool,
     ) -> Element<Message> {
         let login_type_button = |label, filter, current_filter| {
@@ -231,16 +229,11 @@ impl LoginState {
                     column!().spacing(10).width(Length::Fill).padding(20);
 
                 for acc in accounts {
-                    match &acc.creds {
-                        AccountCreds::Regular {
-                            name,
-                            server,
-                            pw_hash,
-                        } => {
-                            let login_msg = Message::LoginRegular {
-                                name: name.clone(),
-                                pwhash: pw_hash.clone(),
-                                server: server.to_string(),
+                    match &acc {
+                        AccountConfig::Regular { name, server, .. } => {
+                            let login_msg = Message::Login {
+                                account: acc.clone(),
+                                auto_login: false,
                             };
 
                             // TODO: Make sure they can not login twice
@@ -261,10 +254,10 @@ impl LoginState {
                             .width(Length::Fill);
                             accounts_col = accounts_col.push(button);
                         }
-                        AccountCreds::SF { name, pw_hash } => {
-                            let login_msg = Message::LoginSF {
-                                name: name.clone(),
-                                pwhash: pw_hash.clone(),
+                        AccountConfig::SF { name, .. } => {
+                            let login_msg = Message::Login {
+                                account: acc.clone(),
+                                auto_login: false,
                             };
 
                             let button = button(
@@ -441,6 +434,7 @@ impl Helper {
         server: String,
         pw_hash: PWHash,
         remember: bool,
+        auto_login: bool,
     ) -> Command<Message> {
         let name = name.trim().to_string();
         let server = server.trim().to_string();
@@ -453,7 +447,7 @@ impl Helper {
         let session =
             sf_api::session::Session::new_hashed(&name, pw_hash.clone(), con);
 
-        self.login(session, remember, PlayerAuth::Normal(pw_hash))
+        self.login(session, remember, PlayerAuth::Normal(pw_hash), auto_login)
     }
 
     pub fn login(
@@ -461,6 +455,7 @@ impl Helper {
         mut session: sf_api::session::Session,
         remember: bool,
         auth: PlayerAuth,
+        auto_login: bool,
     ) -> Command<Message> {
         let server_ident = ServerIdent::new(session.server_url().as_str());
         let Some(connection) = ServerConnection::new(&server_ident.url) else {
@@ -479,7 +474,7 @@ impl Helper {
             server_id: server_ident.id,
             account: account_id,
         };
-        let info = AccountInfo::new(&name, auth, account_ident, &self.config);
+        let info = AccountInfo::new(&name, auth, account_ident);
         let server = self
             .servers
             .get_or_insert_default(server_ident, connection, None);
@@ -493,14 +488,26 @@ impl Helper {
             };
             return Command::none();
         }
-        self.current_view = View::Account {
-            ident: info.ident,
-            page: AccountPage::Scrapbook,
-        };
+        if !auto_login {
+            self.current_view = View::Account {
+                ident: info.ident,
+                page: AccountPage::Scrapbook,
+            };
+        }
         server.accounts.insert(info.ident.account, info);
+        static WAITING: AtomicU64 = AtomicU64::new(0);
+
         Command::perform(
             async move {
-                let resp = session.login().await?;
+                // This likely has some logic issues
+                let w =
+                    WAITING.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                if w > 0 {
+                    sleep(Duration::from_secs(w)).await;
+                }
+                let resp = session.login().await.inspect(|_| {
+                    WAITING.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+                })?;
                 let gs = GameState::new(resp)?;
                 let gs = Box::new(gs);
                 Ok((gs, Box::new(session)))
@@ -525,6 +532,7 @@ impl Helper {
         name: String,
         pwhash: PWHash,
         remember_sf: bool,
+        auto_login: bool,
     ) -> Command<Message> {
         let ident = SSOIdent::SF(name.clone());
         self.login_state.login_typ = LoginType::SSOAccounts;
@@ -555,6 +563,7 @@ impl Helper {
                     pass: pwhash,
                     chars,
                     remember: remember_sf,
+                    auto_login,
                 },
                 Err(error) => Message::SSOLoginFailure {
                     name,

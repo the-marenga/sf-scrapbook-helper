@@ -13,8 +13,8 @@ use sf_api::{
 use tokio::time::sleep;
 
 use crate::{
-    config::Config, login::PlayerAuth, message::Message, ui::BestSort,
-    AccountIdent, AttackTarget, CharacterInfo,
+    config::CharacterConfig, login::PlayerAuth, message::Message, AccountIdent,
+    AttackTarget, CharacterInfo,
 };
 
 pub struct AccountInfo {
@@ -25,7 +25,6 @@ pub struct AccountInfo {
     pub status: Arc<Mutex<AccountStatus>>,
     pub scrapbook_info: Option<ScrapbookInfo>,
     pub underworld_info: Option<UnderworldInfo>,
-    pub best_sort: BestSort,
 }
 
 pub struct UnderworldInfo {
@@ -33,10 +32,14 @@ pub struct UnderworldInfo {
     pub best: Vec<CharacterInfo>,
     pub max_level: u16,
     pub attack_log: Vec<(DateTime<Local>, String, bool)>,
+    pub auto_lure: bool,
 }
 
 impl UnderworldInfo {
-    pub fn new(gs: &GameState) -> Option<Self> {
+    pub fn new(
+        gs: &GameState,
+        config: Option<&CharacterConfig>,
+    ) -> Option<Self> {
         let underworld = gs.underworld.as_ref()?.clone();
         let avg_lvl = underworld
             .units
@@ -50,6 +53,7 @@ impl UnderworldInfo {
             best: Default::default(),
             max_level: avg_lvl as u16 + 20,
             attack_log: Vec::new(),
+            auto_lure: config.map(|a| a.auto_lure).unwrap_or(false),
         })
     }
 }
@@ -61,19 +65,20 @@ pub struct ScrapbookInfo {
     pub blacklist: IntMap<u32, (String, usize)>,
     pub attack_log: Vec<(DateTime<Local>, AttackTarget, bool)>,
     pub auto_battle: bool,
-    pub best_sort: BestSort,
 }
 
 impl ScrapbookInfo {
-    pub fn new(gs: &GameState, config: &Config) -> Option<Self> {
+    pub fn new(
+        gs: &GameState,
+        config: Option<&CharacterConfig>,
+    ) -> Option<Self> {
         Some(Self {
             scrapbook: gs.character.scrapbok.as_ref()?.clone(),
             best: Default::default(),
             max_level: gs.character.level,
             blacklist: Default::default(),
             attack_log: Default::default(),
-            auto_battle: false,
-            best_sort: config.default_best_sort,
+            auto_battle: config.map(|a| a.auto_battle).unwrap_or(false),
         })
     }
 }
@@ -82,8 +87,7 @@ impl AccountInfo {
     pub fn new(
         name: &str,
         auth: PlayerAuth,
-        account_ident: AccountIdent,
-        config: &Config,
+        ident: AccountIdent,
     ) -> AccountInfo {
         AccountInfo {
             name: name.to_string(),
@@ -92,8 +96,7 @@ impl AccountInfo {
             underworld_info: None,
             last_updated: Local::now(),
             status: Arc::new(Mutex::new(AccountStatus::LoggingIn)),
-            ident: account_ident,
-            best_sort: config.default_best_sort,
+            ident,
         }
     }
 }
@@ -101,18 +104,21 @@ impl AccountInfo {
 pub enum AccountStatus {
     LoggingIn,
     Idle(Box<Session>, Box<GameState>),
-    Busy(Box<GameState>),
+    Busy(Box<GameState>, Box<str>),
     FatalError(String),
     LoggingInAgain,
 }
 
 impl AccountStatus {
-    pub fn take_session(&mut self) -> Option<Box<Session>> {
+    pub fn take_session<T: Into<Box<str>>>(
+        &mut self,
+        reason: T,
+    ) -> Option<Box<Session>> {
         let mut res = None;
-        *self = match std::mem::replace(self, AccountStatus::LoggingIn) {
+        *self = match std::mem::replace(self, AccountStatus::LoggingInAgain) {
             AccountStatus::Idle(a, b) => {
                 res = Some(a);
-                AccountStatus::Busy(b)
+                AccountStatus::Busy(b, reason.into())
             }
             x => x,
         };
@@ -120,8 +126,8 @@ impl AccountStatus {
     }
 
     pub fn put_session(&mut self, session: Box<Session>) {
-        *self = match std::mem::replace(self, AccountStatus::LoggingIn) {
-            AccountStatus::Busy(a) => AccountStatus::Idle(session, a),
+        *self = match std::mem::replace(self, AccountStatus::LoggingInAgain) {
+            AccountStatus::Busy(a, _) => AccountStatus::Idle(session, a),
             x => x,
         };
     }
@@ -148,10 +154,41 @@ impl AutoAttackChecker {
                 tokio::time::sleep(remaining).await;
             }
         };
-        tokio::time::sleep(Duration::from_millis(fastrand::u64(500..=3000)))
+        tokio::time::sleep(Duration::from_millis(fastrand::u64(1000..=3000)))
             .await;
 
         Message::AutoFightPossible { ident: self.ident }
+    }
+}
+
+pub struct AutoLureChecker {
+    pub player_status: Arc<Mutex<AccountStatus>>,
+    pub ident: AccountIdent,
+}
+
+impl AutoLureChecker {
+    pub async fn check(&self) -> Message {
+        let lured = {
+            match &*self.player_status.lock().unwrap() {
+                AccountStatus::Idle(_, session) => {
+                    session.underworld.as_ref().map(|a| a.lured_today)
+                }
+                _ => None,
+            }
+        };
+        let Some(0..=4) = lured else {
+            // Either no underworld, or already lured the max
+            tokio::time::sleep(Duration::from_millis(fastrand::u64(
+                5000..=10_000,
+            )))
+            .await;
+            return Message::AutoLureIdle;
+        };
+
+        tokio::time::sleep(Duration::from_millis(fastrand::u64(3000..=5000)))
+            .await;
+
+        Message::AutoLurePossible { ident: self.ident }
     }
 }
 
@@ -165,7 +202,7 @@ impl AutoPoll {
         sleep(Duration::from_millis(fastrand::u64(5000..=10000))).await;
         let mut session = {
             let mut lock = self.player_status.lock().unwrap();
-            let res = lock.take_session();
+            let res = lock.take_session("Auto Poll");
             match res {
                 Some(res) => res,
                 None => return Message::PlayerNotPolled { ident: self.ident },
@@ -186,7 +223,7 @@ impl AutoPoll {
         };
         let mut lock = self.player_status.lock().unwrap();
         let gs = match &mut *lock {
-            AccountStatus::Busy(gs) => gs,
+            AccountStatus::Busy(gs, _) => gs,
             _ => {
                 lock.put_session(session);
                 return Message::PlayerNotPolled { ident: self.ident };

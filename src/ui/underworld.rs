@@ -2,27 +2,25 @@ use iced::{
     alignment::Horizontal,
     theme,
     widget::{
-        button, column, horizontal_space, pick_list, progress_bar, row,
-        scrollable, text, vertical_space, Image,
+        button, checkbox, column, horizontal_space, row, scrollable, text,
+        vertical_space, Image,
     },
     Alignment, Element, Length,
 };
 use iced_aw::number_input;
-use sf_api::{gamestate::underworld::UnderWorldResourceType, misc::EnumMapGet};
 
+use super::view_crawling;
 use crate::{
     config::Config,
-    crawler::CrawlingOrder,
     message::Message,
     player::{AccountInfo, AccountStatus},
-    server::{CrawlingStatus, ServerInfo},
+    server::ServerInfo,
     ClassImages,
 };
 
 pub fn view_underworld<'a>(
     server: &'a ServerInfo,
     player: &'a AccountInfo,
-    max_threads: usize,
     config: &'a Config,
     images: &'a ClassImages,
 ) -> Element<'a, Message> {
@@ -30,7 +28,7 @@ pub fn view_underworld<'a>(
     let _gs = match &*lock {
         AccountStatus::LoggingIn => return text("Loggin in").size(20).into(),
         AccountStatus::Idle(_, gs) => gs,
-        AccountStatus::Busy(gs) => gs,
+        AccountStatus::Busy(gs, _) => gs,
         AccountStatus::FatalError(err) => {
             return text(format!("Error: {err}")).size(20).into()
         }
@@ -54,11 +52,8 @@ pub fn view_underworld<'a>(
     ));
 
     let souls = info.underworld.souls_current;
-    let souls_limit = info
-        .underworld
-        .production
-        .get(UnderWorldResourceType::Souls)
-        .limit;
+    let souls_limit = info.underworld.souls_limit;
+
     left_col = left_col.push(row!(
         text("Souls Filled:").width(Length::FillPortion(1)),
         text(format!(
@@ -93,6 +88,19 @@ pub fn view_underworld<'a>(
     let max_lvl = row!(text("Max Level:"), horizontal_space(), max_lvl)
         .align_items(Alignment::Center);
     left_col = left_col.push(max_lvl);
+    left_col = left_col.push(
+        checkbox("Auto Lure", info.auto_lure)
+            .on_toggle(|a| Message::AutoLure {
+                ident: player.ident,
+                state: a,
+            })
+            .size(20),
+    );
+    left_col = left_col.push(button("Copy Targets").on_press(
+        Message::CopyBestLures {
+            ident: player.ident,
+        },
+    ));
 
     if !info.attack_log.is_empty() {
         let mut log = column!().padding(5).spacing(5);
@@ -113,107 +121,7 @@ pub fn view_underworld<'a>(
     }
 
     left_col = left_col.push(vertical_space());
-    let sid = server.ident.id;
-    match &server.crawling {
-        CrawlingStatus::Crawling {
-            threads,
-            que,
-            player_info,
-            ..
-        } => {
-            let lock = que.lock().unwrap();
-            let remaining = lock.count_remaining();
-            let crawled = player_info.len();
-            let total = remaining + crawled;
-
-            let progress_text = text(format!("Fetched {}/{}", crawled, total));
-            left_col = left_col.push(progress_text);
-
-            let progress = progress_bar(0.0..=total as f32, crawled as f32)
-                .height(Length::Fixed(10.0));
-            left_col = left_col.push(progress);
-
-            let thread_num = number_input(*threads, max_threads, move |nv| {
-                Message::CrawlerSetThreads {
-                    server: sid,
-                    new_count: nv,
-                }
-            });
-            let thread_num =
-                row!(text("Threads: "), horizontal_space(), thread_num)
-                    .align_items(Alignment::Center);
-            left_col = left_col.push(thread_num);
-            let order_picker = pick_list(
-                [
-                    CrawlingOrder::Random,
-                    CrawlingOrder::TopDown,
-                    CrawlingOrder::BottomUp,
-                ],
-                Some(lock.order),
-                |nv| Message::OrderChange {
-                    server: server.ident.id,
-                    new: nv,
-                },
-            );
-            left_col = left_col.push(
-                row!(
-                    text("Crawling Order:").width(Length::FillPortion(1)),
-                    order_picker.width(Length::FillPortion(1))
-                )
-                .align_items(Alignment::Center),
-            );
-            if config.show_crawling_restrict
-                || !lock.lvl_skipped_accounts.is_empty()
-            {
-                let old_max = lock.max_level;
-                let old_min = lock.min_level;
-
-                let set_min_lvl =
-                    number_input(lock.min_level, 9999u32, move |nv| {
-                        Message::CrawlerSetMinMax {
-                            server: sid,
-                            min: nv,
-                            max: old_max,
-                        }
-                    });
-                let thread_num =
-                    row!(text("Min Lvl: "), horizontal_space(), set_min_lvl)
-                        .align_items(Alignment::Center);
-                left_col = left_col.push(thread_num);
-
-                let set_min_lvl =
-                    number_input(lock.max_level, 9999u32, move |nv| {
-                        Message::CrawlerSetMinMax {
-                            server: sid,
-                            min: old_min,
-                            max: nv,
-                        }
-                    });
-                let thread_num =
-                    row!(text("Max Lvl: "), horizontal_space(), set_min_lvl)
-                        .align_items(Alignment::Center);
-                left_col = left_col.push(thread_num);
-            }
-
-            let clear = button("Clear HoF").on_press(Message::ClearHof(sid));
-            let save = button("Save HoF").on_press(Message::SaveHoF(sid));
-            left_col = left_col.push(
-                column!(row!(clear, save).spacing(10))
-                    .align_items(Alignment::Center),
-            );
-
-            drop(lock);
-        }
-        CrawlingStatus::Waiting => {
-            left_col = left_col.push(text("Waiting for Player..."));
-        }
-        CrawlingStatus::Restoring => {
-            left_col = left_col.push(text("Loading Server Data..."));
-        }
-        CrawlingStatus::CrawlingFailed(_) => {
-            left_col = left_col.push(text("Crawling Failed"));
-        }
-    }
+    left_col = left_col.push(view_crawling(server, config));
 
     let mut name_bar = column!();
     name_bar = name_bar.push(row!(
@@ -279,13 +187,11 @@ pub fn view_underworld<'a>(
         ));
     }
     let target_list = scrollable(target_list);
-    let right_col = column!(name_bar, target_list)
-        .width(Length::Fill)
-        .spacing(10);
+    let right_col = column!(name_bar, target_list).spacing(10);
 
     row!(
-        left_col.width(Length::FillPortion(1)),
-        right_col.width(Length::FillPortion(3))
+        left_col.width(Length::Fixed(200.0)),
+        right_col.width(Length::Fill)
     )
     .padding(15)
     .height(Length::Fill)

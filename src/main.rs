@@ -16,7 +16,7 @@ use std::{
 
 use chrono::{Local, NaiveDate, Utc};
 use clap::{Parser, Subcommand};
-use config::{CharacterConfig, Config};
+use config::{AccountConfig, Config};
 use crawler::{CrawlAction, Crawler, CrawlerState, CrawlingOrder, WorkerQue};
 use iced::{
     executor, subscription, theme,
@@ -37,7 +37,8 @@ use log4rs::{
 use login::{LoginState, LoginType, PlayerAuth, SSOStatus, SSOValidator};
 use nohash_hasher::{IntMap, IntSet};
 use player::{
-    AccountInfo, AccountStatus, AutoAttackChecker, AutoPoll, ScrapbookInfo,
+    AccountInfo, AccountStatus, AutoAttackChecker, AutoLureChecker, AutoPoll,
+    ScrapbookInfo,
 };
 use serde::{Deserialize, Serialize};
 use server::{CrawlingStatus, ServerIdent, ServerInfo, Servers};
@@ -106,8 +107,9 @@ fn main() -> iced::Result {
     let mut settings = Settings::with_flags(args);
     settings.window.min_size = Some(iced::Size {
         width: 700.0,
-        height: 400.0,
+        height: 700.0,
     });
+    settings.default_text_size = 13.0f32.into();
     settings.window.visible = !is_headless;
 
     let raw_img = include_bytes!("../assets/icon.ico");
@@ -208,21 +210,31 @@ impl ClassImages {
     }
 }
 
-#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 enum View {
     Account {
         ident: AccountIdent,
         page: AccountPage,
     },
-    Overview,
+    Overview {
+        selected: HashSet<AccountIdent>,
+        action: Option<ActionSelection>,
+    },
     Login,
     Settings,
+}
+
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+pub enum ActionSelection {
+    Multi,
+    Character(AccountIdent),
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 enum AccountPage {
     Scrapbook,
     Underworld,
+    Options,
 }
 
 fn get_server_code(server: &str) -> String {
@@ -370,6 +382,56 @@ impl Application for Helper {
                 .map(Message::FontLoaded),
         );
 
+        let mut loading = 0;
+
+        for acc in &helper.config.accounts {
+            match acc {
+                AccountConfig::Regular { config, .. } => {
+                    if config.login {
+                        let acc = acc.clone();
+                        loading += 1;
+                        commands.push(Command::perform(
+                            async move {
+                                sleep(Duration::from_millis(
+                                    (loading - 1) * 200,
+                                ))
+                                .await
+                            },
+                            move |_| Message::Login {
+                                account: acc,
+                                auto_login: true,
+                            },
+                        ));
+                    }
+                }
+                AccountConfig::SF { characters, .. } => {
+                    if characters.iter().any(|a| a.config.login) {
+                        loading += 1;
+                        let acc = acc.clone();
+                        commands.push(Command::perform(
+                            async move {
+                                sleep(Duration::from_millis(
+                                    (loading - 1) * 200,
+                                ))
+                                .await
+                            },
+                            move |_| Message::Login {
+                                account: acc,
+                                auto_login: true,
+                            },
+                        ));
+                    }
+                }
+            }
+        }
+
+        if loading > 0 {
+            helper.current_view = View::Overview {
+                selected: Default::default(),
+                action: Default::default(),
+            };
+        }
+
         (helper, Command::batch(commands))
     }
 
@@ -385,7 +447,18 @@ impl Application for Helper {
         &mut self,
         message: Self::Message,
     ) -> iced::Command<Self::Message> {
-        self.handle_msg(message)
+        // let start = Instant::now();
+        // let msg = format!("{message:?}");
+        let res = self.handle_msg(message);
+        _ = &res;
+        // let time = start.elapsed();
+        // if time > Duration::from_millis(1) {
+        //     println!(
+        //         "{} took: {time:?}",
+        //         msg.split('{').next().unwrap_or(&msg).trim(),
+        //     );
+        // }
+        res
     }
 
     fn view(
@@ -395,13 +468,33 @@ impl Application for Helper {
     }
 
     fn subscription(&self) -> Subscription<Self::Message> {
+        // Disambiguates running subscriptions
+        #[derive(Debug, Hash, PartialEq, Eq)]
+        enum SubIdent {
+            RefreshUI,
+            AutoPoll(AccountIdent),
+            AutoBattle(AccountIdent),
+            AutoLure(AccountIdent),
+            SSOCheck(SSOProvider),
+            Crawling(usize, ServerID),
+        }
+
         let mut subs = vec![];
+        let subscription = subscription::unfold(
+            SubIdent::RefreshUI,
+            (),
+            move |a: ()| async move {
+                sleep(Duration::from_millis(200)).await;
+                (Message::UIActive, a)
+            },
+        );
+        subs.push(subscription);
 
         for (server_id, server) in &self.servers.0 {
             for acc in server.accounts.values() {
                 if self.config.auto_poll {
                     let subscription = subscription::unfold(
-                        (acc.ident, 777),
+                        SubIdent::AutoPoll(acc.ident),
                         AutoPoll {
                             player_status: acc.status.clone(),
                             ident: acc.ident,
@@ -411,22 +504,37 @@ impl Application for Helper {
                     subs.push(subscription);
                 }
 
-                let Some(si) = &acc.scrapbook_info else {
-                    continue;
+                if let Some(si) = &acc.scrapbook_info {
+                    if si.auto_battle {
+                        let subscription = subscription::unfold(
+                            SubIdent::AutoBattle(acc.ident),
+                            AutoAttackChecker {
+                                player_status: acc.status.clone(),
+                                ident: acc.ident,
+                            },
+                            move |a: AutoAttackChecker| async move {
+                                (a.check().await, a)
+                            },
+                        );
+                        subs.push(subscription);
+                    }
                 };
 
-                if !si.auto_battle {
-                    continue;
+                if let Some(ui) = &acc.underworld_info {
+                    if ui.auto_lure {
+                        let subscription = subscription::unfold(
+                            SubIdent::AutoLure(acc.ident),
+                            AutoLureChecker {
+                                player_status: acc.status.clone(),
+                                ident: acc.ident,
+                            },
+                            move |a: AutoLureChecker| async move {
+                                (a.check().await, a)
+                            },
+                        );
+                        subs.push(subscription);
+                    }
                 }
-                let subscription = subscription::unfold(
-                    (acc.ident, 69),
-                    AutoAttackChecker {
-                        player_status: acc.status.clone(),
-                        ident: acc.ident,
-                    },
-                    move |a: AutoAttackChecker| async move { (a.check().await, a) },
-                );
-                subs.push(subscription);
             }
 
             if let CrawlingStatus::Crawling {
@@ -441,7 +549,7 @@ impl Application for Helper {
                 };
                 for thread in 0..*threads {
                     let subscription = subscription::unfold(
-                        (thread, server.ident.id),
+                        SubIdent::Crawling(thread, server.ident.id),
                         Crawler {
                             que: que.clone(),
                             state: session.clone(),
@@ -460,7 +568,7 @@ impl Application for Helper {
         ] {
             let arc = arc.clone();
             let subscription = subscription::unfold(
-                prov,
+                SubIdent::SSOCheck(prov),
                 SSOValidator {
                     status: arc,
                     provider: prov,
@@ -577,31 +685,30 @@ impl Helper {
         let mut has_old = false;
 
         let mut lock = que.lock().unwrap();
+        let invalid =
+            lock.invalid_accounts.iter().map(|a| a.as_str()).collect();
+
+        let result_limit = 50;
 
         if let Some(si) = &mut account.scrapbook_info {
             let per_player_counts = calc_per_player_count(
                 player_info, equipment, &si.scrapbook.items, si,
+                self.config.blacklist_threshold,
             );
-            let mut best_players =
-                find_best(&per_player_counts, player_info, 20);
+            let mut best_players = find_best(
+                &per_player_counts, player_info, result_limit, &invalid,
+            );
 
-            match account.best_sort {
-                ui::BestSort::Level => {
-                    // Find best already sorts by level
+            best_players.sort_by(|a, b| {
+                if a.missing != b.missing {
+                    return b.missing.cmp(&a.missing);
                 }
-                ui::BestSort::Attributes => {
-                    best_players.sort_by(|a, b| {
-                        if a.missing != b.missing {
-                            return b.missing.cmp(&a.missing);
-                        }
 
-                        match (a.info.stats, b.info.stats) {
-                            (Some(a), Some(b)) => a.cmp(&b),
-                            _ => a.info.level.cmp(&b.info.level),
-                        }
-                    });
+                match (a.info.stats, b.info.stats) {
+                    (Some(a), Some(b)) => a.cmp(&b),
+                    _ => a.info.level.cmp(&b.info.level),
                 }
-            }
+            });
 
             si.best = best_players;
 
@@ -621,7 +728,7 @@ impl Helper {
             ui.best.clear();
             'a: for (_, players) in naked.range(..=ui.max_level).rev() {
                 for player in players.iter() {
-                    if ui.best.len() >= 20 {
+                    if ui.best.len() >= result_limit {
                         break 'a;
                     }
                     let Some(info) = player_info.get(player) else {
@@ -643,7 +750,7 @@ impl Helper {
 
         account.last_updated = Local::now();
 
-        if has_old && *threads == 0 {
+        if (has_old || player_info.is_empty()) && *threads == 0 {
             return server.set_threads(1, &self.config.base_name);
         }
         Command::none()
@@ -663,6 +770,7 @@ pub fn calc_per_player_count(
     >,
     scrapbook: &HashSet<EquipmentIdent>,
     si: &ScrapbookInfo,
+    blacklist_th: usize,
 ) -> IntMap<u32, usize> {
     let mut per_player_counts = IntMap::default();
     per_player_counts.reserve(player_info.len());
@@ -686,7 +794,7 @@ pub fn calc_per_player_count(
         }
 
         if let Some((_, lost)) = si.blacklist.get(&info.uid) {
-            if *lost >= 5 {
+            if *lost >= blacklist_th.max(1) {
                 return false;
             }
         }
@@ -709,6 +817,12 @@ macro_rules! impl_unique_id {
 #[derive(Debug, Hash, PartialEq, Eq, Copy, Clone)]
 pub struct ServerID(u64);
 
+impl std::fmt::Display for ServerID {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_fmt(format_args!("server-{}", self.0))
+    }
+}
+
 #[derive(Debug, Hash, PartialEq, Eq, Copy, Clone)]
 pub struct QueID(u64);
 impl_unique_id!(QueID);
@@ -717,10 +831,25 @@ impl_unique_id!(QueID);
 pub struct AccountID(u64);
 impl_unique_id!(AccountID);
 
+impl std::fmt::Display for AccountID {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_fmt(format_args!("character-{}", self.0))
+    }
+}
+
 #[derive(Debug, Hash, PartialEq, Eq, Copy, Clone)]
 pub struct AccountIdent {
     server_id: ServerID,
     account: AccountID,
+}
+
+impl std::fmt::Display for AccountIdent {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_fmt(format_args!(
+            "character-{}@{}",
+            self.account.0, self.server_id.0
+        ))
+    }
 }
 
 impl ServerInfo {
@@ -781,6 +910,7 @@ fn find_best(
     per_player_counts: &IntMap<u32, usize>,
     player_info: &IntMap<u32, CharacterInfo>,
     max_out: usize,
+    invalid: &HashSet<&str>,
 ) -> Vec<AttackTarget> {
     // Prune the counts to make computation faster
     let mut max = 1;
@@ -796,12 +926,14 @@ fn find_best(
     let mut best_players = Vec::new();
     for (count, players) in counts.iter().enumerate().rev() {
         best_players.extend(
-            players.iter().flat_map(|a| player_info.get(a)).map(|a| {
-                AttackTarget {
+            players
+                .iter()
+                .flat_map(|a| player_info.get(a))
+                .filter(|a| !invalid.contains(&a.name.as_str()))
+                .map(|a| AttackTarget {
                     missing: count + 1,
                     info: a.to_owned(),
-                }
-            }),
+                }),
         );
         if best_players.len() >= max_out {
             break;
