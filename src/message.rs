@@ -2,6 +2,7 @@ use std::{fmt::Write, sync::Arc, time::Duration};
 
 use chrono::Local;
 use config::{CharacterConfig, SFAccCharacter, SFCharIdent};
+use crawler::CrawlerError;
 use iced::Command;
 use log::{error, trace, warn};
 use sf_api::{
@@ -192,6 +193,7 @@ pub enum Message {
     CrawlerUnable {
         server: ServerID,
         action: CrawlAction,
+        error: CrawlerError,
     },
     ViewLogin,
     LoginNameInputChange(String),
@@ -362,14 +364,11 @@ impl Helper {
             Message::CrawlerUnable {
                 server: server_id,
                 action,
+                error,
             } => {
                 let Some(server) = self.servers.get_mut(&server_id) else {
                     return Command::none();
                 };
-                warn!(
-                    "Crawler was unable to complete: '{action}' on {}",
-                    server.ident.id
-                );
                 let CrawlingStatus::Crawling {
                     que_id,
                     que,
@@ -397,7 +396,17 @@ impl Helper {
                         }
                     }
                 }
-                drop(lock);
+
+                match error {
+                    CrawlerError::NotFound => {
+                        return Command::none();
+                    }
+                    CrawlerError::Generic => warn!(
+                        "Crawler was unable to complete: '{action}' on {}",
+                        server.ident.id
+                    ),
+                    CrawlerError::RateLimit => {}
+                }
 
                 recent_failures.push(action);
 

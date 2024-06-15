@@ -3523,7 +3523,7 @@ dependencies = [
 [[package]]
 name = "sf-api"
 version = "0.2.0"
-source = "git+https://github.com/the-marenga/sf-api?rev=a19f8fa#a19f8fa0de25f4ea2a5c18abbdecb711db51adb0"
+source = "git+https://github.com/the-marenga/sf-api?rev=5ae791f#5ae791fe7a7d9c1db344b545ad2a1982689df392"
 dependencies = [
  "aho-corasick",
  "base64",

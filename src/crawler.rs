@@ -67,18 +67,24 @@ impl Crawler {
             }
             CrawlAction::Page(page, _) => {
                 let cmd = Command::HallOfFamePage { page: *page };
-                let Ok(resp) = session.send_command_raw(&cmd).await else {
-                    return Message::CrawlerUnable {
-                        server: self.server_id,
-                        action,
-                    };
+                let resp = match session.send_command_raw(&cmd).await {
+                    Ok(resp) => resp,
+                    Err(e) => {
+                        return Message::CrawlerUnable {
+                            server: self.server_id,
+                            action,
+                            error: CrawlerError::from_err(e),
+                        };
+                    }
                 };
                 drop(session);
                 let mut gs = self.state.gs.lock().unwrap();
-                if gs.update(resp).is_err() {
+                if let Err(e) = gs.update(resp) {
+                    let error = CrawlerError::from_err(e);
                     return Message::CrawlerUnable {
                         server: self.server_id,
                         action,
+                        error,
                     };
                 };
 
@@ -105,18 +111,25 @@ impl Crawler {
                 let cmd = Command::ViewPlayer {
                     ident: name.clone(),
                 };
-                let Ok(resp) = session.send_command_raw(&cmd).await else {
-                    return Message::CrawlerUnable {
-                        server: self.server_id,
-                        action,
-                    };
+                let resp = match session.send_command_raw(&cmd).await {
+                    Ok(resp) => resp,
+                    Err(e) => {
+                        let error = CrawlerError::from_err(e);
+                        return Message::CrawlerUnable {
+                            server: self.server_id,
+                            action,
+                            error,
+                        };
+                    }
                 };
                 drop(session);
                 let mut gs = self.state.gs.lock().unwrap();
-                if gs.update(&resp).is_err() {
+                if let Err(e) = gs.update(&resp) {
+                    let error = CrawlerError::from_err(e);
                     return Message::CrawlerUnable {
                         server: self.server_id,
                         action,
+                        error,
                     };
                 }
 
@@ -366,5 +379,29 @@ impl WorkerQue {
             + self.todo_accounts.len()
             + self.in_flight_pages.len() * PER_PAGE
             + self.in_flight_accounts.len()
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CrawlerError {
+    Generic,
+    NotFound,
+    RateLimit,
+}
+
+impl CrawlerError {
+    #[allow(clippy::single_match)]
+    pub fn from_err(value: SFError) -> Self {
+        match value {
+            SFError::ServerError(serr) => match serr.as_str() {
+                "cannot do this right now2" => return CrawlerError::RateLimit,
+                "player not found" => {
+                    return CrawlerError::NotFound;
+                }
+                _ => {}
+            },
+            _ => {}
+        }
+        CrawlerError::Generic
     }
 }
