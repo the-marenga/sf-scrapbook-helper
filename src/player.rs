@@ -157,7 +157,7 @@ impl AutoAttackChecker {
         tokio::time::sleep(Duration::from_millis(fastrand::u64(1000..=3000)))
             .await;
 
-        Message::AutoFightPossible { ident: self.ident }
+        Message::AutoBattlePossible { ident: self.ident }
     }
 }
 

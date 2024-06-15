@@ -447,12 +447,12 @@ impl Application for Helper {
         &mut self,
         message: Self::Message,
     ) -> iced::Command<Self::Message> {
-        // let start = Instant::now();
+        // let start = std::time::Instant::now();
         // let msg = format!("{message:?}");
         let res = self.handle_msg(message);
         _ = &res;
         // let time = start.elapsed();
-        // if time > Duration::from_millis(1) {
+        // if true{
         //     println!(
         //         "{} took: {time:?}",
         //         msg.split('{').next().unwrap_or(&msg).trim(),
