@@ -420,7 +420,6 @@ impl Helper {
                 return Command::perform(
                     async move {
                         let mut session_lock = state.session.write().await;
-
                         loop {
                             debug!("Relog crawler on {}", id);
                             let Ok(resp) = session_lock.login().await else {
@@ -443,6 +442,8 @@ impl Helper {
                                 .await;
                                 continue;
                             };
+                            sleep(Duration::from_secs(5)).await;
+
                             let mut gs = state.gs.lock().unwrap();
                             *gs = new_gs;
                             return;

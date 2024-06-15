@@ -193,13 +193,13 @@ impl CrawlerState {
         name: String,
         server: ServerConnection,
     ) -> Result<Self, SFError> {
-        sleep(Duration::from_secs(1)).await;
         let password = name.chars().rev().collect::<String>();
         let mut session = Session::new(&name, &password, server.clone());
         debug!("Logging in {name} on {}", session.server_url());
         if let Ok(resp) = session.login().await {
             debug!("Successfully logged in {name} on {}", session.server_url());
             let gs = GameState::new(resp)?;
+            sleep(Duration::from_secs(3)).await;
             return Ok(Self {
                 session: RwLock::new(session),
                 gs: Mutex::new(gs),
