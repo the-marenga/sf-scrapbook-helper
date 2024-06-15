@@ -2,6 +2,7 @@ use std::{fmt::Write, sync::Arc, time::Duration};
 
 use chrono::Local;
 use config::{CharacterConfig, SFAccCharacter, SFCharIdent};
+use crawler::CrawlerError;
 use iced::Command;
 use log::{error, trace, warn};
 use sf_api::{
@@ -154,7 +155,7 @@ pub enum Message {
         against: LureTarget,
         resp: Box<Response>,
     },
-    AutoFightPossible {
+    AutoBattlePossible {
         ident: AccountIdent,
     },
     OrderChange {
@@ -192,6 +193,7 @@ pub enum Message {
     CrawlerUnable {
         server: ServerID,
         action: CrawlAction,
+        error: CrawlerError,
     },
     ViewLogin,
     LoginNameInputChange(String),
@@ -362,14 +364,11 @@ impl Helper {
             Message::CrawlerUnable {
                 server: server_id,
                 action,
+                error,
             } => {
                 let Some(server) = self.servers.get_mut(&server_id) else {
                     return Command::none();
                 };
-                warn!(
-                    "Crawler was unable to complete: '{action}' on {}",
-                    server.ident.id
-                );
                 let CrawlingStatus::Crawling {
                     que_id,
                     que,
@@ -397,7 +396,17 @@ impl Helper {
                         }
                     }
                 }
-                drop(lock);
+
+                match error {
+                    CrawlerError::NotFound => {
+                        return Command::none();
+                    }
+                    CrawlerError::Generic => warn!(
+                        "Crawler was unable to complete: '{action}' on {}",
+                        server.ident.id
+                    ),
+                    CrawlerError::RateLimit => {}
+                }
 
                 recent_failures.push(action);
 
@@ -420,7 +429,6 @@ impl Helper {
                 return Command::perform(
                     async move {
                         let mut session_lock = state.session.write().await;
-
                         loop {
                             debug!("Relog crawler on {}", id);
                             let Ok(resp) = session_lock.login().await else {
@@ -443,6 +451,8 @@ impl Helper {
                                 .await;
                                 continue;
                             };
+                            sleep(Duration::from_secs(5)).await;
+
                             let mut gs = state.gs.lock().unwrap();
                             *gs = new_gs;
                             return;
@@ -617,7 +627,9 @@ impl Helper {
                         equipment,
                         last_update,
                         recent_failures,
-                        ..
+                        naked,
+                        threads: _,
+                        crawling_session: _,
                     } => {
                         let mut que = que.lock().unwrap();
                         que.que_id = status.que_id;
@@ -629,6 +641,7 @@ impl Helper {
                         que.in_flight_pages = vec![];
                         que.in_flight_accounts = Default::default();
                         *que_id = status.que_id;
+                        *naked = status.naked;
                         *player_info = status.player_info;
                         *equipment = status.equipment;
                         *last_update = Local::now();
@@ -701,6 +714,7 @@ impl Helper {
                 let Some(server) = self.servers.get_mut(&server_id) else {
                     return Command::none();
                 };
+
                 let Some(tp) = server.accounts.iter().find_map(|(_, b)| {
                     match &*b.status.lock().unwrap() {
                         AccountStatus::LoggingInAgain
@@ -714,6 +728,7 @@ impl Helper {
                 }) else {
                     return Command::none();
                 };
+
                 let tp = (tp as usize).div_ceil(PER_PAGE);
 
                 let id = server.ident.id;
@@ -755,7 +770,7 @@ impl Helper {
                     new.apply_order(&mut que.todo_pages);
                 }
             }
-            Message::AutoFightPossible { ident } => {
+            Message::AutoBattlePossible { ident } => {
                 let refetch = self.update_best(ident, true);
 
                 let Some(server) = self.servers.0.get_mut(&ident.server_id)
@@ -780,22 +795,37 @@ impl Helper {
                     return refetch;
                 }
 
-                let Some(mut session) = status.take_session("Fighting") else {
+                let Some(mut session) = status.take_session("A Fighting")
+                else {
                     return refetch;
                 };
-                drop(status);
 
                 let Some(si) = &account.scrapbook_info else {
-                    account.status.lock().unwrap().put_session(session);
+                    status.put_session(session);
                     return refetch;
                 };
+
+                let total_len = si.best.len();
+                let new_len = si.best.iter().filter(|a| !a.is_old()).count();
+
+                // The list will be mostly old at startup.
+                // Therefore, we should wait until the list is mostly fetched,
+                // until we actually start. This is not new_len == total_len in
+                // case there is an off by one error/other bug somewhere, that
+                // would leave the auto-battle perma stuck here
+                if total_len == 0 || (new_len as f32 / total_len as f32) < 0.9 {
+                    info!("Delayed auto battle for {ident}");
+                    status.put_session(session);
+                    return refetch;
+                }
 
                 let Some(target) =
                     si.best.iter().find(|a| !a.is_old()).cloned()
                 else {
-                    account.status.lock().unwrap().put_session(session);
+                    status.put_session(session);
                     return refetch;
                 };
+                drop(status);
 
                 let tn = target.info.name.clone();
                 let fight = Command::perform(
@@ -1235,9 +1265,8 @@ impl Helper {
                 };
                 drop(status);
                 let ident = account.ident;
-                let refetch_cmd = self.update_best(ident, true);
                 let tn = target.info.name.clone();
-                let attack = Command::perform(
+                return Command::perform(
                     async move {
                         let cmd = sf_api::command::Command::Fight {
                             name: tn,
@@ -1260,8 +1289,6 @@ impl Helper {
                         },
                     },
                 );
-
-                return Command::batch([refetch_cmd, attack]);
             }
             Message::PlayerSetMaxLvl { ident, max } => {
                 let Some(server) = self.servers.get_mut(&ident.server_id)
@@ -1447,9 +1474,8 @@ impl Helper {
                 };
                 drop(status);
                 let ident = account.ident;
-                let refetch_cmd = self.update_best(ident, true);
                 let tid = target.uid;
-                let attack = Command::perform(
+                return Command::perform(
                     async move {
                         let cmd = sf_api::command::Command::UnderworldAttack {
                             player_id: tid,
@@ -1471,8 +1497,6 @@ impl Helper {
                         },
                     },
                 );
-
-                return Command::batch([refetch_cmd, attack]);
             }
             Message::PlayerLureResult {
                 ident,
@@ -1764,19 +1788,33 @@ impl Helper {
                 let Some(mut session) = status.take_session("Luring") else {
                     return refetch;
                 };
-                drop(status);
 
                 let Some(ui) = &account.underworld_info else {
-                    account.status.lock().unwrap().put_session(session);
+                    status.put_session(session);
                     return refetch;
                 };
+
+                let total_len = ui.best.len();
+                let new_len = ui.best.iter().filter(|a| !a.is_old()).count();
+
+                // Thelist will be mostly old at startup.
+                // Therefore, we should wait until the list is mostly fetched,
+                // until we actually start. This is not new_len == total_len in
+                // case there is an off by one error/other bug somewhere, that
+                // would leave the auto-battle perma stuck here
+                if total_len == 0 || (new_len as f32 / total_len as f32) < 0.9 {
+                    info!("Delayed auto lure for {ident}");
+                    status.put_session(session);
+                    return refetch;
+                }
 
                 let Some(target) =
                     ui.best.iter().find(|a| !a.is_old()).cloned()
                 else {
-                    account.status.lock().unwrap().put_session(session);
+                    status.put_session(session);
                     return refetch;
                 };
+                drop(status);
                 info!("Auto Underworld attack {ident}");
                 let fight = Command::perform(
                     async move {
