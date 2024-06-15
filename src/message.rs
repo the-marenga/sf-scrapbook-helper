@@ -617,7 +617,9 @@ impl Helper {
                         equipment,
                         last_update,
                         recent_failures,
-                        ..
+                        naked,
+                        threads: _,
+                        crawling_session: _,
                     } => {
                         let mut que = que.lock().unwrap();
                         que.que_id = status.que_id;
@@ -629,6 +631,7 @@ impl Helper {
                         que.in_flight_pages = vec![];
                         que.in_flight_accounts = Default::default();
                         *que_id = status.que_id;
+                        *naked = status.naked;
                         *player_info = status.player_info;
                         *equipment = status.equipment;
                         *last_update = Local::now();
@@ -701,6 +704,7 @@ impl Helper {
                 let Some(server) = self.servers.get_mut(&server_id) else {
                     return Command::none();
                 };
+
                 let Some(tp) = server.accounts.iter().find_map(|(_, b)| {
                     match &*b.status.lock().unwrap() {
                         AccountStatus::LoggingInAgain
@@ -714,6 +718,7 @@ impl Helper {
                 }) else {
                     return Command::none();
                 };
+
                 let tp = (tp as usize).div_ceil(PER_PAGE);
 
                 let id = server.ident.id;
