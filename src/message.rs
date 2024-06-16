@@ -384,15 +384,27 @@ impl Helper {
                 match &action {
                     CrawlAction::Wait | CrawlAction::InitTodo => {}
                     CrawlAction::Page(a, b) => {
-                        if *b == *que_id {
+                        if *b != *que_id {
+                            return Command::none();
+                        }
+                        lock.in_flight_pages.retain(|x| x != a);
+                        if error == CrawlerError::RateLimit {
+                            lock.todo_pages.push(*a);
+                            return Command::none();
+                        } else {
                             lock.invalid_pages.push(*a);
-                            lock.in_flight_pages.retain(|x| x != a);
                         }
                     }
                     CrawlAction::Character(a, b) => {
-                        if *b == *que_id {
-                            lock.invalid_accounts.push(a.to_string());
-                            lock.in_flight_accounts.remove(a);
+                        if *b != *que_id {
+                            return Command::none();
+                        }
+                        lock.in_flight_accounts.remove(a);
+                        if error == CrawlerError::RateLimit {
+                            lock.todo_accounts.push(a.clone());
+                            return Command::none();
+                        } else {
+                            lock.invalid_accounts.push(a.clone());
                         }
                     }
                 }
@@ -814,7 +826,6 @@ impl Helper {
                 // case there is an off by one error/other bug somewhere, that
                 // would leave the auto-battle perma stuck here
                 if total_len == 0 || (new_len as f32 / total_len as f32) < 0.9 {
-                    info!("Delayed auto battle for {ident}");
                     status.put_session(session);
                     return refetch;
                 }
@@ -1803,7 +1814,6 @@ impl Helper {
                 // case there is an off by one error/other bug somewhere, that
                 // would leave the auto-battle perma stuck here
                 if total_len == 0 || (new_len as f32 / total_len as f32) < 0.9 {
-                    info!("Delayed auto lure for {ident}");
                     status.put_session(session);
                     return refetch;
                 }

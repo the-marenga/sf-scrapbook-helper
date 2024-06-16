@@ -1,6 +1,6 @@
 use std::{
     sync::{Arc, Mutex},
-    time::Duration,
+    time::{Duration, SystemTime},
 };
 
 use chrono::Utc;
@@ -70,10 +70,14 @@ impl Crawler {
                 let resp = match session.send_command_raw(&cmd).await {
                     Ok(resp) => resp,
                     Err(e) => {
+                        let error = CrawlerError::from_err(e);
+                        if error == CrawlerError::RateLimit {
+                            sleep_until_rate_limit_reset().await;
+                        }
                         return Message::CrawlerUnable {
                             server: self.server_id,
                             action,
-                            error: CrawlerError::from_err(e),
+                            error,
                         };
                     }
                 };
@@ -115,6 +119,9 @@ impl Crawler {
                     Ok(resp) => resp,
                     Err(e) => {
                         let error = CrawlerError::from_err(e);
+                        if error == CrawlerError::RateLimit {
+                            sleep_until_rate_limit_reset().await;
+                        }
                         return Message::CrawlerUnable {
                             server: self.server_id,
                             action,
@@ -404,4 +411,19 @@ impl CrawlerError {
         }
         CrawlerError::Generic
     }
+}
+
+async fn sleep_until_rate_limit_reset() {
+    let now = SystemTime::now()
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .expect("Time went backwards");
+
+    let mut timeout = 60 - (now.as_secs() % 60);
+
+    if timeout == 0 || timeout == 59 {
+        timeout = 1;
+    }
+    timeout = timeout.min(15);
+
+    sleep(Duration::from_secs(timeout + 1)).await;
 }

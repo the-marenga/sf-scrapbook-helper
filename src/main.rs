@@ -69,7 +69,7 @@ enum CLICommand {
         #[arg(short, long, default_value_t = 4, value_parser=concurrency_limits)]
         concurrency: usize,
         /// The amount of threads per server used to
-        #[arg(short, long, default_value_t = 10, value_parser=concurrency_limits)]
+        #[arg(short, long, default_value_t = 1, value_parser=concurrency_limits)]
         threads: usize,
         #[clap(flatten)]
         servers: ServerSelect,
