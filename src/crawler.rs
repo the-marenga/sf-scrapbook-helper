@@ -391,7 +391,7 @@ impl WorkerQue {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CrawlerError {
-    Generic,
+    Generic(Box<str>),
     NotFound,
     RateLimit,
 }
@@ -399,7 +399,7 @@ pub enum CrawlerError {
 impl CrawlerError {
     #[allow(clippy::single_match)]
     pub fn from_err(value: SFError) -> Self {
-        match value {
+        match &value {
             SFError::ServerError(serr) => match serr.as_str() {
                 "cannot do this right now2" => return CrawlerError::RateLimit,
                 "player not found" => {
@@ -409,7 +409,7 @@ impl CrawlerError {
             },
             _ => {}
         }
-        CrawlerError::Generic
+        CrawlerError::Generic(value.to_string().into())
     }
 }
 
@@ -423,7 +423,10 @@ async fn sleep_until_rate_limit_reset() {
     if timeout == 0 || timeout == 59 {
         timeout = 1;
     }
-    timeout = timeout.min(15);
 
-    sleep(Duration::from_secs(timeout + 1)).await;
+    // make sure we dont cause a thundering herd (everyone sending requests at
+    // exactly :00s)
+    timeout += fastrand::u64(1..40);
+
+    sleep(Duration::from_secs(timeout)).await;
 }

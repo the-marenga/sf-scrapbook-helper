@@ -413,8 +413,9 @@ impl Helper {
                     CrawlerError::NotFound => {
                         return Command::none();
                     }
-                    CrawlerError::Generic => warn!(
-                        "Crawler was unable to complete: '{action}' on {}",
+                    CrawlerError::Generic(err) => warn!(
+                        "Crawler was unable to complete: '{action}' on {} -> \
+                         {err}",
                         server.ident.id
                     ),
                     CrawlerError::RateLimit => {}

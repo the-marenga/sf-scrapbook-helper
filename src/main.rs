@@ -76,7 +76,7 @@ enum CLICommand {
     },
 }
 fn concurrency_limits(s: &str) -> Result<usize, String> {
-    clap_num::number_range(s, 1, 20)
+    clap_num::number_range(s, 1, 50)
 }
 
 #[derive(Debug, clap::Args, Clone)]
