@@ -1,6 +1,6 @@
 use std::{
     sync::{Arc, Mutex},
-    time::Duration,
+    time::{Duration, SystemTime},
 };
 
 use chrono::Utc;
@@ -70,10 +70,14 @@ impl Crawler {
                 let resp = match session.send_command_raw(&cmd).await {
                     Ok(resp) => resp,
                     Err(e) => {
+                        let error = CrawlerError::from_err(e);
+                        if error == CrawlerError::RateLimit {
+                            sleep_until_rate_limit_reset().await;
+                        }
                         return Message::CrawlerUnable {
                             server: self.server_id,
                             action,
-                            error: CrawlerError::from_err(e),
+                            error,
                         };
                     }
                 };
@@ -115,6 +119,9 @@ impl Crawler {
                     Ok(resp) => resp,
                     Err(e) => {
                         let error = CrawlerError::from_err(e);
+                        if error == CrawlerError::RateLimit {
+                            sleep_until_rate_limit_reset().await;
+                        }
                         return Message::CrawlerUnable {
                             server: self.server_id,
                             action,
@@ -384,7 +391,7 @@ impl WorkerQue {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CrawlerError {
-    Generic,
+    Generic(Box<str>),
     NotFound,
     RateLimit,
 }
@@ -392,7 +399,7 @@ pub enum CrawlerError {
 impl CrawlerError {
     #[allow(clippy::single_match)]
     pub fn from_err(value: SFError) -> Self {
-        match value {
+        match &value {
             SFError::ServerError(serr) => match serr.as_str() {
                 "cannot do this right now2" => return CrawlerError::RateLimit,
                 "player not found" => {
@@ -402,6 +409,24 @@ impl CrawlerError {
             },
             _ => {}
         }
-        CrawlerError::Generic
+        CrawlerError::Generic(value.to_string().into())
     }
+}
+
+async fn sleep_until_rate_limit_reset() {
+    let now = SystemTime::now()
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .expect("Time went backwards");
+
+    let mut timeout = 60 - (now.as_secs() % 60);
+
+    if timeout == 0 || timeout == 59 {
+        timeout = 1;
+    }
+
+    // make sure we dont cause a thundering herd (everyone sending requests at
+    // exactly :00s)
+    timeout += fastrand::u64(1..40);
+
+    sleep(Duration::from_secs(timeout)).await;
 }
