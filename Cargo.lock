@@ -3523,7 +3523,7 @@ dependencies = [
 [[package]]
 name = "sf-api"
 version = "0.2.0"
-source = "git+https://github.com/the-marenga/sf-api?rev=5ae791f#5ae791fe7a7d9c1db344b545ad2a1982689df392"
+source = "git+https://github.com/the-marenga/sf-api?rev=79607d2#79607d2494d423b41f94048989bbf3e7b3292837"
 dependencies = [
  "aho-corasick",
  "base64",
@@ -3549,7 +3549,7 @@ dependencies = [
 
 [[package]]
 name = "sf-scrapbook-helper"
-version = "0.2.2"
+version = "0.2.3"
 dependencies = [
  "ahash",
  "async-compression",
