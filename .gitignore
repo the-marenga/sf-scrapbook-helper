@@ -3,3 +3,6 @@
 helper.toml
 .DS_Store
 *.log
+*.zip
+*.sha256sum
+/dist
