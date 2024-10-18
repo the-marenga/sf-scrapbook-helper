@@ -700,14 +700,9 @@ impl Helper {
             );
 
             best_players.sort_by(|a, b| {
-                if a.missing != b.missing {
-                    return b.missing.cmp(&a.missing);
-                }
-
-                match (a.info.stats, b.info.stats) {
-                    (Some(a), Some(b)) => a.cmp(&b),
-                    _ => a.info.level.cmp(&b.info.level),
-                }
+                return b.missing.cmp(&a.missing)
+                    .then(a.info.stats.cmp(&b.info.stats))
+                    .then(a.info.level.cmp(&b.info.level));
             });
 
             si.best = best_players;
