@@ -101,6 +101,20 @@ pub fn view_scrapbook<'a>(
         .align_items(Alignment::Center);
     left_col = left_col.push(max_lvl);
 
+    let max_attributes =
+        number_input(
+            si.max_attributes,
+            999999,
+            move |nv| Message::PlayerSetMaxAttributes {
+                ident: aid,
+                max: nv,
+        })
+        .style(iced_aw::NumberInputStyles::Default);
+
+    let max_attributes = row!(text("Max Attributes:"), horizontal_space(), max_attributes)
+        .align_items(Alignment::Center);
+    left_col = left_col.push(max_attributes);
+
     match &gs.arena.next_free_fight {
         Some(x) if *x >= Local::now() => {
             let t = text("Next free fight:");

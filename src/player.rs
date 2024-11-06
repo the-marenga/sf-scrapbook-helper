@@ -62,20 +62,25 @@ pub struct ScrapbookInfo {
     pub scrapbook: ScrapBook,
     pub best: Vec<AttackTarget>,
     pub max_level: u16,
+    pub max_attributes: u32,
     pub blacklist: IntMap<u32, (String, usize)>,
     pub attack_log: Vec<(DateTime<Local>, AttackTarget, bool)>,
     pub auto_battle: bool,
 }
 
 impl ScrapbookInfo {
+    const DEFAULT_ATTRIBUTE_FACTOR: f32 = 1.2;
     pub fn new(
         gs: &GameState,
         config: Option<&CharacterConfig>,
     ) -> Option<Self> {
+        let total_attributes = gs.character.attribute_basis.as_array().iter().sum::<u32>()
+            + gs.character.attribute_additions.as_array().iter().sum::<u32>();
         Some(Self {
             scrapbook: gs.character.scrapbok.as_ref()?.clone(),
             best: Default::default(),
             max_level: gs.character.level,
+            max_attributes: (total_attributes as f32 * Self::DEFAULT_ATTRIBUTE_FACTOR) as u32,
             blacklist: Default::default(),
             attack_log: Default::default(),
             auto_battle: config.map(|a| a.auto_battle).unwrap_or(false),
