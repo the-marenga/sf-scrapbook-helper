@@ -45,7 +45,6 @@ pub enum SSOStatus {
 
 #[derive(Debug)]
 pub struct SSOLogin {
-    pub sso_id: u64,
     pub ident: SSOIdent,
     pub status: SSOLoginStatus,
 }
@@ -545,7 +544,6 @@ impl Helper {
             return Command::none();
         }
         self.login_state.active_sso.push(SSOLogin {
-            sso_id: fastrand::u64(..),
             ident: ident.clone(),
             status: SSOLoginStatus::Loading,
         });
