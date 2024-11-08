@@ -101,7 +101,7 @@ pub fn view_scrapbook<'a>(
         .align_items(Alignment::Center);
     left_col = left_col.push(max_lvl);
 
-    let max_attributes = number_input(si.max_attributes, 999999, move |nv| {
+    let max_attributes = number_input(si.max_attributes, 9_999_999, move |nv| {
         Message::PlayerSetMaxAttributes {
             ident: aid,
             max: nv,

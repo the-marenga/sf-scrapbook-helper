@@ -695,7 +695,9 @@ pub fn view_crawling<'a>(
         CrawlingStatus::Restoring => {
             left_col = left_col.push(text("Loading Server Data..."));
         }
-        CrawlingStatus::CrawlingFailed(_) => {
+        CrawlingStatus::CrawlingFailed(reason) => {
+            // TODO: Maybe display this?
+            _ = reason;
             left_col = left_col.push(text("Crawling Failed"));
         }
     }

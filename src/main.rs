@@ -584,7 +584,9 @@ impl Application for Helper {
                             }
                         }
                         Ok(None) => Message::SSORetry,
-                        Err(e) => Message::SSOAuthError(e.to_string()),
+                        Err(e) => Message::SSOAuthError {
+                            _error: e.to_string(),
+                        },
                     };
 
                     (msg, a)
@@ -700,9 +702,10 @@ impl Helper {
             );
 
             best_players.sort_by(|a, b| {
-                return b.missing.cmp(&a.missing)
+                b.missing
+                    .cmp(&a.missing)
                     .then(a.info.stats.cmp(&b.info.stats))
-                    .then(a.info.level.cmp(&b.info.level));
+                    .then(a.info.level.cmp(&b.info.level))
             });
 
             si.best = best_players;

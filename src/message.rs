@@ -101,7 +101,9 @@ pub enum Message {
         provider: SSOProvider,
     },
     SSORetry,
-    SSOAuthError(String),
+    SSOAuthError {
+        _error: String,
+    },
     SetMaxThreads(usize),
     SetStartThreads(usize),
     SetBlacklistThr(usize),
@@ -1228,7 +1230,6 @@ impl Helper {
                 };
 
                 let new_sso = SSOLogin {
-                    sso_id: fastrand::u64(..),
                     ident,
                     status: SSOLoginStatus::Success,
                 };
@@ -1246,7 +1247,7 @@ impl Helper {
             Message::SSORetry => {
                 // The subscription will handle this
             }
-            Message::SSOAuthError(_) => {
+            Message::SSOAuthError { .. } => {
                 // TODO: Display this I guess
             }
             Message::OpenLink(url) => {
