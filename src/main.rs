@@ -788,6 +788,10 @@ pub fn calc_per_player_count(
             return false;
         }
 
+        if info.stats.unwrap_or_default() > si.max_attributes {
+            return false;
+        }
+
         if let Some((_, lost)) = si.blacklist.get(&info.uid) {
             if *lost >= blacklist_th.max(1) {
                 return false;

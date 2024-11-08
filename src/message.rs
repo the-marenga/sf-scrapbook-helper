@@ -82,6 +82,10 @@ pub enum Message {
         ident: AccountIdent,
         max: u16,
     },
+    PlayerSetMaxAttributes {
+        ident: AccountIdent,
+        max: u32,
+    },
     PlayerAttack {
         ident: AccountIdent,
         target: AttackTarget,
@@ -1315,6 +1319,21 @@ impl Helper {
                     return Command::none();
                 };
                 si.max_level = max;
+                return self.update_best(ident, false);
+            }
+            Message::PlayerSetMaxAttributes { ident, max } => {
+                let Some(server) = self.servers.get_mut(&ident.server_id)
+                else {
+                    return Command::none();
+                };
+                let Some(account) = server.accounts.get_mut(&ident.account)
+                else {
+                    return Command::none();
+                };
+                let Some(si) = &mut account.scrapbook_info else {
+                    return Command::none();
+                };
+                si.max_attributes = max;
                 return self.update_best(ident, false);
             }
             Message::SaveHoF(server_id) => {
