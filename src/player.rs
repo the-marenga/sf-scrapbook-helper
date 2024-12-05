@@ -82,7 +82,7 @@ impl ScrapbookInfo {
         };
 
         Some(Self {
-            scrapbook: gs.character.scrapbok.as_ref()?.clone(),
+            scrapbook: gs.character.scrapbook.as_ref()?.clone(),
             best: Default::default(),
             max_level: gs.character.level,
             max_attributes,

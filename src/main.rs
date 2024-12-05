@@ -154,6 +154,7 @@ struct ClassImages {
     scout: iced::widget::image::Handle,
     warrior: iced::widget::image::Handle,
     mage: iced::widget::image::Handle,
+    paladin: iced::widget::image::Handle,
 }
 
 macro_rules! load_class_image {
@@ -176,6 +177,7 @@ impl ClassImages {
     pub fn new() -> ClassImages {
         ClassImages {
             assassin: load_class_image!("../assets/classes/assassin.webp"),
+            paladin: load_class_image!("../assets/classes/paladin.webp"),
             bard: load_class_image!("../assets/classes/bard.webp"),
             berserk: load_class_image!("../assets/classes/berserk.webp"),
             demon_hunter: load_class_image!(
@@ -206,6 +208,7 @@ impl ClassImages {
             Class::Druid => self.druid.clone(),
             Class::Bard => self.bard.clone(),
             Class::Necromancer => self.necromancer.clone(),
+            Class::Paladin => self.paladin.clone(),
         }
     }
 }
