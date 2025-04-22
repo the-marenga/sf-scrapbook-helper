@@ -7,9 +7,9 @@ edition = "2021"
 ahash = "0.8"
 async-compression = { version = "0.4", features = ["zlib"] }
 chrono = "0.4"
-clap = { version = "4.5.20", features = ["derive"] }
-clap-num = "1.1.1"
-fastrand = "2.1"
+clap = { version = "4.5.37", features = ["derive"] }
+clap-num = "1.2.0"
+fastrand = "2.3"
 iced = { version = "0.12", default-features = false, features = [
     "tokio",
     "lazy",
@@ -25,19 +25,19 @@ image = { version = "0.25", default-features = false, features = [
     "ico",
     "webp",
 ] }
-indicatif = "0.17.8"
-log = "0.4.22"
+indicatif = "0.17.11"
+log = "0.4.27"
 log4rs = { version = "1.3.0" }
 nohash-hasher = "0.2"
 num-format = "0.4.4"
 open = "5.3"
 reqwest = { version = "0.12", features = ["gzip", "deflate", "brotli"] }
-semver = "1.0.23"
+semver = "1.0.26"
 serde = "1.0"
 serde_json = "1.0"
 sf-api = { git = "https://github.com/the-marenga/sf-api", rev = "7d34674" }
-titlecase = "3.3"
-tokio = { version = "1.41", default-features = false, features = ["fs"] }
+titlecase = "3.5"
+tokio = { version = "1.44", default-features = false, features = ["fs"] }
 toml = "0.8"
 
 [profile.release]
