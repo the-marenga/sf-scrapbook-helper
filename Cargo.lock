@@ -3601,8 +3601,9 @@ dependencies = [
 
 [[package]]
 name = "sf-api"
-version = "0.2.0"
-source = "git+https://github.com/the-marenga/sf-api?rev=7d34674#7d3467406a1684f3df7602e0a6a6b6d641ca2fb3"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8213ff541302f8ae84a61f04f0bbe0f9d3e9ee21a57f95c0ac1dac12d44e285b"
 dependencies = [
  "aho-corasick",
  "base64",
