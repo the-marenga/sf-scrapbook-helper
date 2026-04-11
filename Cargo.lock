@@ -3750,7 +3750,8 @@ dependencies = [
 [[package]]
 name = "sf-api"
 version = "0.4.0"
-source = "git+https://github.com/the-marenga/sf-api.git#311a580634b30eef56a1faeb372984c8f78c7185"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3263179619d83c9c013d42897075f5404d1f20e6bce01ac1b23677208373d896"
 dependencies = [
  "base64",
  "chrono",
@@ -3766,6 +3767,7 @@ dependencies = [
  "serde_json",
  "sha1",
  "strum",
+ "thiserror 2.0.18",
  "tokio",
  "url",
 ]
