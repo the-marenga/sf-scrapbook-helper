@@ -405,7 +405,9 @@ impl CrawlerError {
     pub fn from_err(value: SFError) -> Self {
         match &value {
             SFError::ServerError(serr) => match serr.as_str() {
-                "cannot do this right now2" => return CrawlerError::RateLimit,
+                "too many request" | "cannot do this right now2" => {
+                    return CrawlerError::RateLimit;
+                }
                 "player not found" => {
                     return CrawlerError::NotFound;
                 }
