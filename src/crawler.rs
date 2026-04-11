@@ -151,12 +151,12 @@ impl Crawler {
                             .filter_map(|a| a.equipment_ident())
                             .collect();
                         let stats = player
-                            .base_attributes
+                            .attribute_basis
                             .as_array()
                             .iter()
                             .sum::<u32>()
                             + player
-                                .bonus_attributes
+                                .attribute_additions
                                 .as_array()
                                 .iter()
                                 .sum::<u32>();
@@ -237,7 +237,7 @@ impl CrawlerState {
             Race::Demon,
         ];
 
-        let all_classes = [
+        let mut all_classes = vec![
             Class::Warrior,
             Class::Mage,
             Class::Scout,
@@ -249,6 +249,10 @@ impl CrawlerState {
             Class::Bard,
             Class::Necromancer,
         ];
+
+        if session.server_url().as_str().contains("s27.") {
+            all_classes = vec![Class::Warrior, Class::Mage, Class::Scout];
+        }
 
         let mut rng = fastrand::Rng::new();
         let gender = rng.choice([Gender::Female, Gender::Male]).unwrap();
@@ -401,7 +405,9 @@ impl CrawlerError {
     pub fn from_err(value: SFError) -> Self {
         match &value {
             SFError::ServerError(serr) => match serr.as_str() {
-                "cannot do this right now2" => return CrawlerError::RateLimit,
+                "too many request" | "cannot do this right now2" => {
+                    return CrawlerError::RateLimit;
+                }
                 "player not found" => {
                     return CrawlerError::NotFound;
                 }
