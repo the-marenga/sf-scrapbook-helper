@@ -210,6 +210,7 @@ impl ClassImages {
             Class::Paladin => self.paladin.clone(),
             // TODO: Give this a custom icon
             Class::PlagueDoctor => self.assassin.clone(),
+            Class::BloodWeaver => self.assassin.clone(),
         }
     }
 }
